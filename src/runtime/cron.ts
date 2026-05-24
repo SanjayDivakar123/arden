@@ -78,7 +78,7 @@ export function parseCronExpression(schedule: string): string | null {
   if (s.includes('every day') || s.includes('daily')) {
     const match = s.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
     if (match) {
-      let hour = parseInt(match[1]);
+      let hour = parseInt(match[1] ?? "0");
       const min = parseInt(match[2] ?? '0');
       if (match[3] === 'pm' && hour !== 12) hour += 12;
       if (match[3] === 'am' && hour === 12) hour = 0;

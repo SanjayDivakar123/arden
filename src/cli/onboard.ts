@@ -149,7 +149,7 @@ async function runEasySetup() {
     message: 'What should your agent be called?',
     placeholder: 'MyAgent',
     defaultValue: 'MyAgent',
-    validate: (v) => (!v.trim() ? 'Name cannot be empty.' : undefined),
+    validate: (v) => (!(v ?? "").trim() ? 'Name cannot be empty.' : undefined),
   });
   if (p.isCancel(agentName)) { p.cancel('Cancelled.'); process.exit(0); }
 
@@ -174,7 +174,7 @@ async function runEasySetup() {
 
   const apiKey = await p.password({
     message: provider.keyLabel,
-    validate: (v) => (!v.trim() ? 'API key is required.' : undefined),
+    validate: (v) => (!(v ?? "").trim() ? 'API key is required.' : undefined),
   });
   if (p.isCancel(apiKey)) { p.cancel('Cancelled.'); process.exit(0); }
 
@@ -197,7 +197,7 @@ async function runEasySetup() {
     if (ch.keyName) {
       const chKey = await p.password({
         message: ch.keyLabel,
-        validate: (v) => (!v.trim() ? 'Required.' : undefined),
+        validate: (v) => (!(v ?? "").trim() ? 'Required.' : undefined),
       });
       if (p.isCancel(chKey)) { p.cancel('Cancelled.'); process.exit(0); }
       secrets[ch.keyName] = chKey as string;
@@ -235,7 +235,7 @@ async function runManualSetup() {
     message: 'Agent name',
     placeholder: 'MyAgent',
     defaultValue: 'MyAgent',
-    validate: (v) => (!v.trim() ? 'Required.' : undefined),
+    validate: (v) => (!(v ?? "").trim() ? 'Required.' : undefined),
   });
   if (p.isCancel(agentName)) { p.cancel('Cancelled.'); process.exit(0); }
 
@@ -256,7 +256,7 @@ async function runManualSetup() {
 
   const apiKey = await p.password({
     message: provider.keyLabel,
-    validate: (v) => (!v.trim() ? 'Required.' : undefined),
+    validate: (v) => (!(v ?? "").trim() ? 'Required.' : undefined),
   });
   if (p.isCancel(apiKey)) { p.cancel('Cancelled.'); process.exit(0); }
 
@@ -291,7 +291,7 @@ async function runManualSetup() {
     if (ch.keyName) {
       const chKey = await p.password({
         message: `${ch.label}: ${ch.keyLabel}`,
-        validate: (v) => (!v.trim() ? 'Required.' : undefined),
+        validate: (v) => (!(v ?? "").trim() ? 'Required.' : undefined),
       });
       if (p.isCancel(chKey)) { p.cancel('Cancelled.'); process.exit(0); }
       secrets[ch.keyName] = chKey as string;
@@ -413,14 +413,14 @@ export async function promptToolKeys(secrets: Record<string, string>): Promise<v
   if (addBrowserbase) {
     const bbKey = await p.password({
       message: 'Browserbase API key (browserbase.com/settings)',
-      validate: (v) => (!v.trim() ? 'Required.' : undefined),
+      validate: (v) => (!(v ?? "").trim() ? 'Required.' : undefined),
     });
     if (p.isCancel(bbKey)) { p.cancel('Cancelled.'); process.exit(0); }
     secrets.BROWSERBASE_API_KEY = bbKey as string;
 
     const bbProject = await p.text({
       message: 'Browserbase Project ID',
-      validate: (v) => (!v.trim() ? 'Required.' : undefined),
+      validate: (v) => (!(v ?? "").trim() ? 'Required.' : undefined),
     });
     if (p.isCancel(bbProject)) { p.cancel('Cancelled.'); process.exit(0); }
     secrets.BROWSERBASE_PROJECT_ID = bbProject as string;
@@ -436,7 +436,7 @@ export async function promptToolKeys(secrets: Record<string, string>): Promise<v
   if (addMaton) {
     const matonKey = await p.password({
       message: 'Maton API key (maton.ai)',
-      validate: (v) => (!v.trim() ? 'Required.' : undefined),
+      validate: (v) => (!(v ?? "").trim() ? 'Required.' : undefined),
     });
     if (p.isCancel(matonKey)) { p.cancel('Cancelled.'); process.exit(0); }
     secrets.MATON_API_KEY = matonKey as string;

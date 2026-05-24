@@ -21,7 +21,7 @@ async function matonRequest(endpoint: string, method: string, body?: object) {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: body ? JSON.stringify(body) : null,
   });
 
   if (!res.ok) {

@@ -129,3 +129,20 @@ registerCronTools();
 getNotifyFn().then((notifyFn) => {
   startCronJobs(agent, notifyFn);
 });
+
+import { registerShellTools } from '../tools/shell.js';
+registerShellTools();
+
+import { registerBrowserTools } from '../tools/browser.js';
+registerBrowserTools();
+
+import { registerSkillsTools } from '../tools/skills.js';
+import { registerFinanceTools } from '../tools/finance.js';
+import { registerResearchTools } from '../tools/research.js';
+import { registerContentTools } from '../tools/content.js';
+import { registerDeviceTools } from '../tools/devices.js';
+registerSkillsTools();
+registerFinanceTools();
+registerResearchTools();
+registerContentTools();
+registerDeviceTools();

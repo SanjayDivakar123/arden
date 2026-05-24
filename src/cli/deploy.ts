@@ -50,7 +50,7 @@ export async function runDeploySetup() {
   const host = await p.text({
     message: 'VPS IP or hostname',
     placeholder: '192.168.1.1 or myserver.com',
-    validate: (v) => (!v.trim() ? 'Required.' : undefined),
+    validate: (v) => (!(v ?? "").trim() ? 'Required.' : undefined),
   });
   if (p.isCancel(host)) { p.cancel('Cancelled.'); process.exit(0); }
 
@@ -96,7 +96,7 @@ export async function runDeploySetup() {
     host: host as string,
     username: username as string,
     authType: authType as 'key' | 'password',
-    keyPath,
+    keyPath: keyPath ?? "",
     deployPath: deployPath as string,
   };
 

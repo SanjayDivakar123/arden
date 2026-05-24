@@ -50,7 +50,7 @@ async function fetchGateway(path: string, method = 'GET', body?: object) {
   const res = await fetch(url, {
     method,
     headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
+    body: body ? JSON.stringify(body) : null,
   });
   return res.json();
 }
@@ -385,9 +385,9 @@ function cmdConfig() {
     const key = param.split('.');
     let obj: Record<string, unknown> = config;
     for (let i = 0; i < key.length - 1; i++) {
-      obj = obj[key[i]] as Record<string, unknown>;
+      obj = obj[key[i]!] as Record<string, unknown>;
     }
-    obj[key[key.length - 1]] = args[3];
+    obj[key[key.length - 1]!] = args[3];
     writeConfig(config);
     log.success(`Set ${param} = ${args[3]}`);
     return;
@@ -515,7 +515,7 @@ function cmdHelp() {
     ['version',           'Print version'],
   ];
   for (const [cmd, desc] of commands) {
-    console.log(`  ${C.green}${cmd.padEnd(22)}${C.reset} ${C.dim}${desc}${C.reset}`);
+    console.log(`  ${C.green}${(cmd ?? "").padEnd(22)}${C.reset} ${C.dim}${desc}${C.reset}`);
   }
   console.log('');
 }
