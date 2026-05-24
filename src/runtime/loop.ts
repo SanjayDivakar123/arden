@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { env } from '../config/loader.js';
 import { logger } from '../utils/logger.js';
 
 export interface Message {
@@ -22,7 +23,7 @@ export interface LoopResult {
   iterations: number;
 }
 
-const client = new Anthropic();
+const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
 export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
   const {

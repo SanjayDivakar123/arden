@@ -8,3 +8,7 @@ workspace/logs/
 .arden-deploy.json
 .arden-secrets.json
 .env
+workspace/SOUL.md
+workspace/AGENTS.md
+workspace/MEMORY.md
+workspace/HEARTBEAT.md
