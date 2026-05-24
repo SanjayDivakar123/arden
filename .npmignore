@@ -7,3 +7,7 @@ dist/
 .arden-crons.json
 workspace/logs/
 *.db
+.arden-whatsapp-auth/
+.arden-secrets.json
+.arden-deploy.json
+.env
