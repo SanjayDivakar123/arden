@@ -14,9 +14,10 @@
 ## Voice Calls
 - Provider: Bland.ai
 - Outbound caller ID: +19129152223
-- Encrypted key: 05a4ca7a-963d-4a43-93dd-f541e22d2900 (required as encrypted_key in all outbound calls)
+- Encrypted key: 05a4ca7a-963d-4a43-93dd-f541e22d2900 (required as encrypted_key header in all outbound calls)
 - Call Mr. Divakar on: +16462618813
 - Default voice: maya
+- **IMPORTANT**: The `encrypted_key` must be passed as an HTTP HEADER, not a body parameter. The `from` parameter in the request body should be set to +19129152223 to specify the caller ID.
 
 ## Maton Connections
 - Zoho Mail: connection ID 1f0b8166-ca2c-4b6a-b4c1-798fae7e337f (secretary@onedvs.com)
