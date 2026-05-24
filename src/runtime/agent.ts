@@ -23,6 +23,25 @@ export class Agent {
     return this.sessions.get(sessionId)!;
   }
 
+  private resolveModel(userMessage: string): string {
+    const msg = userMessage.toLowerCase();
+
+    // Haiku: simple, fast tasks
+    const haikuPatterns = /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|sure|got it|confirm|cancel|remind me|what time|status|ping|check)[s!?.]*$/i;
+    if (haikuPatterns.test(msg.trim()) || msg.length < 40) {
+      return this.config.agent.haiku_model;
+    }
+
+    // Opus: complex, high-stakes tasks
+    const opusPatterns = /analyze|strategy|legal|tax|regulatory|contract|audit|deep.?dive|comprehensive|write.*report|draft.*proposal|investment|financial.?model|due.?diligence/i;
+    if (opusPatterns.test(msg)) {
+      return this.config.agent.opus_model;
+    }
+
+    // Sonnet: default for everything else
+    return this.config.agent.model;
+  }
+
   async handle(sessionId: string, userMessage: string): Promise<string> {
     const session = this.getSession(sessionId);
     const systemPrompt = this.memory.buildSystemPrompt(this.config.agent.name);
@@ -33,9 +52,11 @@ export class Agent {
     session.push({ role: 'user', content: userMessage });
 
     const tools = registry.toAnthropicTools();
+    const model = this.resolveModel(userMessage);
+    logger.info('AGENT', `Model selected: ${model}`);
 
     const result = await runLoop({
-      model: this.config.agent.model,
+      model,
       systemPrompt,
       messages: session,
       tools: tools.length > 0 ? tools as any : undefined,

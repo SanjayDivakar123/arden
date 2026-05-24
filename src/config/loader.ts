@@ -10,6 +10,8 @@ export interface ArdenConfig {
     model: string;
     fallback_model: string;
     workspace: string;
+    haiku_model: string;
+    opus_model: string;
   };
   channels: {
     telegram?: { enabled: boolean; allowlist: string[] };
@@ -29,8 +31,10 @@ export interface ArdenConfig {
 const DEFAULTS: ArdenConfig = {
   agent: {
     name: 'Agent',
-    model: 'claude-sonnet-4-5',
-    fallback_model: 'claude-haiku-4-5',
+    model: 'claude-sonnet-4-6',
+    fallback_model: 'claude-haiku-4-5-20251001',
+    haiku_model: 'claude-haiku-4-5-20251001',
+    opus_model: 'claude-opus-4-6',
     workspace: './workspace',
   },
   channels: {},
