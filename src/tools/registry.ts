@@ -12,7 +12,7 @@ export interface ArdenTool {
     }>;
     required: string[];
   };
-  handler: (input: Record<string, unknown>) => Promise<unknown>;
+  handler: (input: Record<string, unknown>, sessionId?: string) => Promise<unknown>;
 }
 
 class ToolRegistry {
@@ -44,11 +44,11 @@ class ToolRegistry {
     }));
   }
 
-  async call(name: string, input: Record<string, unknown>): Promise<unknown> {
+  async call(name: string, input: Record<string, unknown>, sessionId?: string): Promise<unknown> {
     const tool = this.tools.get(name);
     if (!tool) throw new Error(`Tool not found: ${name}`);
     logger.info('TOOLS', `Calling: ${name}`);
-    return tool.handler(input);
+    return tool.handler(input, sessionId);
   }
 }
 

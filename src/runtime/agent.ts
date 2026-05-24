@@ -63,7 +63,7 @@ export class Agent {
       maxIterations: this.config.loop.max_iterations,
       requireCompletionReport: this.config.loop.require_completion_report,
       onToolCall: async (name, input) => {
-        return registry.call(name, input as Record<string, unknown>);
+        return registry.call(name, input as Record<string, unknown>, sessionId);
       },
     });
 

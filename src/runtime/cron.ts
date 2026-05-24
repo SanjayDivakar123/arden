@@ -11,6 +11,7 @@ export interface CronJob {
   createdBy: 'user' | 'agent';
   createdAt: string;
   enabled: boolean;
+  sessionId?: string;
 }
 
 const CRON_PATH = path.resolve('.arden-crons.json');
@@ -121,9 +122,21 @@ export function startCronJobs(agent: Agent, notifyFn: (msg: string) => Promise<v
     const task = cron.schedule(job.expression, async () => {
       logger.info('CRON', `Running job ${job.id}: ${job.instruction.substring(0, 60)}`);
       try {
-        const reply = await agent.handle(`cron:${job.id}`, job.instruction);
+        const sessionId = job.sessionId ?? `cron:${job.id}`;
+        const reply = await agent.handle(sessionId, job.instruction);
         if (reply && reply.trim() !== 'HEARTBEAT_OK') {
-          await notifyFn(reply);
+          // If sessionId is a whatsapp session, notify via WhatsApp directly
+          if (job.sessionId && job.sessionId.startsWith('whatsapp:')) {
+            const number = job.sessionId.replace('whatsapp:', '').replace('@s.whatsapp.net', '').replace('@lid', '');
+            try {
+              const { startWhatsAppNotify } = await import('../adapters/whatsapp/index.js');
+              await startWhatsAppNotify(number, reply);
+            } catch {
+              await notifyFn(reply);
+            }
+          } else {
+            await notifyFn(reply);
+          }
         }
       } catch (err) {
         logger.error('CRON', `Job ${job.id} failed: ${String(err)}`);

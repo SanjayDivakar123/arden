@@ -20,7 +20,7 @@ export function registerCronTools() {
       },
       required: ['instruction', 'schedule'],
     },
-    handler: async (input) => {
+    handler: async (input, sessionId?: string) => {
       const { instruction, schedule } = input as { instruction: string; schedule: string };
       const expression = parseCronExpression(schedule);
       if (!expression) {
@@ -31,6 +31,7 @@ export function registerCronTools() {
         instruction,
         createdBy: 'agent',
         enabled: true,
+        ...(sessionId ? { sessionId } : {}),
       });
       logger.success('CRON', `Agent scheduled: ${job.id}`);
       return `Scheduled. Job ID: ${job.id}. Will run: ${schedule} (${expression})`;

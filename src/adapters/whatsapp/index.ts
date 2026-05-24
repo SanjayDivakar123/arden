@@ -62,6 +62,7 @@ export async function startWhatsAppAdapter(agent: Agent) {
 
       if (connection === 'open') {
         logger.success('WHATSAPP', 'Connected and ready.');
+        setGlobalSock(sock);
       }
     });
 
@@ -114,4 +115,16 @@ export async function startWhatsAppAdapter(agent: Agent) {
 
   await connect();
   logger.info('WHATSAPP', `Starting — allowlist: ${allowlist.join(', ') || 'open'}`);
+}
+
+let globalSock: any = null;
+
+export function setGlobalSock(sock: any) {
+  globalSock = sock;
+}
+
+export async function startWhatsAppNotify(number: string, message: string) {
+  if (!globalSock) throw new Error('WhatsApp not connected');
+  const jid = number.replace('+', '') + '@s.whatsapp.net';
+  await globalSock.sendMessage(jid, { text: message });
 }

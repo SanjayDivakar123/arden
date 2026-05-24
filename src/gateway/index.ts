@@ -100,14 +100,33 @@ import { startHeartbeat } from '../runtime/heartbeat.js';
 async function getNotifyFn() {
   const cfg = loadConfig();
   return async (msg: string) => {
+    // Send via Telegram
     if (cfg.channels.telegram?.enabled) {
       const allowlist = cfg.channels.telegram.allowlist;
       if (allowlist.length > 0) {
-        const { Bot } = await import('grammy');
-        const { env: e } = await import('../config/loader.js');
-        const bot = new Bot(e.TELEGRAM_BOT_TOKEN);
-        for (const userId of allowlist) {
-          await bot.api.sendMessage(userId, msg);
+        try {
+          const { Bot } = await import('grammy');
+          const { env: e } = await import('../config/loader.js');
+          const bot = new Bot(e.TELEGRAM_BOT_TOKEN);
+          for (const userId of allowlist) {
+            await bot.api.sendMessage(userId, msg);
+          }
+        } catch (err) {
+          logger.error('NOTIFY', 'Telegram notify failed: ' + String(err));
+        }
+      }
+    }
+    // Send via WhatsApp
+    if (cfg.channels.whatsapp?.enabled) {
+      const allowlist = cfg.channels.whatsapp.allowlist;
+      if (allowlist.length > 0) {
+        try {
+          const { startWhatsAppNotify } = await import('../adapters/whatsapp/index.js');
+          for (const number of allowlist) {
+            await startWhatsAppNotify(number, msg);
+          }
+        } catch (err) {
+          logger.error('NOTIFY', 'WhatsApp notify failed: ' + String(err));
         }
       }
     }
