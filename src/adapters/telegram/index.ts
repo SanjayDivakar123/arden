@@ -33,8 +33,13 @@ export function startTelegramAdapter(agent: Agent) {
     logger.info('TELEGRAM', `@${username}: ${userMessage.substring(0, 80)}`);
 
     try {
-      // Send typing indicator
       await ctx.replyWithChatAction('typing');
+      const isHeavyTask = userMessage.length > 80 || /research|find|search|analyze|write|create|build|deploy|send|schedule|book|automate|look up|get me|can you/i.test(userMessage);
+      if (isHeavyTask) {
+        const acks = ['On it.', 'Got it, working on it.', 'On it — give me a moment.', 'Sure, on it.', 'Working on that now.'];
+        const ack = acks[Math.floor(Math.random() * acks.length)];
+        await ctx.reply(ack ?? "On it.");
+      }
       const reply = await agent.handle(sessionId, userMessage);
       await ctx.reply(reply, { parse_mode: 'HTML' });
     } catch (err) {
