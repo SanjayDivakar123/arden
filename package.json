@@ -44,7 +44,7 @@
     "type": "git",
     "url": "git+https://github.com/sanjaydivakar/arden.git"
   },
-  "files": "[\"src/\",\"bin/\",\"workspace/\",\"LICENSE\",\"README.md\"]",
+  "files": "[\"bin/\",\"src/\",\"LICENSE\",\"README.md\",\"tsconfig.json\",\"arden.config.json\"]",
   "engines": {
     "node": ">=22.0.0"
   }
