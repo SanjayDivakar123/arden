@@ -81,4 +81,22 @@ export class Agent {
     this.sessions.delete(sessionId);
     logger.info('AGENT', `Session ${sessionId} cleared`);
   }
+
+  async compactSession(sessionId: string): Promise<string> {
+    const session = this.getSession(sessionId);
+    if (session.length === 0) return 'No conversation to compact.';
+    const summary = await runLoop({
+      model: this.config.agent.model,
+      systemPrompt: 'Summarize this conversation in a concise paragraph capturing the key points, decisions, and context.',
+      messages: session,
+      maxIterations: 1,
+      requireCompletionReport: false,
+      onToolCall: async () => ({}),
+    });
+    this.sessions.set(sessionId, [
+      { role: 'user', content: '[Conversation compacted]' },
+      { role: 'assistant', content: `Previous conversation summary: ${summary.reply}` },
+    ]);
+    return summary.reply;
+  }
 }

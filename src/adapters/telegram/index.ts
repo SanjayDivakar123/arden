@@ -1,6 +1,9 @@
 import { Bot } from 'grammy';
 import { env, loadConfig } from '../../config/loader.js';
 import { logger } from '../../utils/logger.js';
+import { handleSlashCommand } from '../../runtime/commands.js';
+
+
 import { Agent } from '../../runtime/agent.js';
 
 const config = loadConfig();
@@ -34,6 +37,24 @@ export function startTelegramAdapter(agent: Agent) {
 
     try {
       await ctx.replyWithChatAction('typing');
+
+      // Handle slash commands
+      if (userMessage.startsWith('/')) {
+        const cmdReply = await handleSlashCommand(userMessage, sessionId, agent);
+        if (cmdReply !== null) {
+          await ctx.reply(cmdReply);
+          return;
+        }
+      }
+
+      // Handle slash commands
+      if (userMessage.startsWith('/')) {
+        const cmdReply = await handleSlashCommand(userMessage, sessionId, agent);
+        if (cmdReply !== null) {
+          await ctx.reply(cmdReply);
+          return;
+        }
+      }
       const isHeavyTask = userMessage.length > 80 || /research|find|search|analyze|write|create|build|deploy|send|schedule|book|automate|look up|get me|can you/i.test(userMessage);
       if (isHeavyTask) {
         const acks = ['On it.', 'Got it, working on it.', 'On it — give me a moment.', 'Sure, on it.', 'Working on that now.'];

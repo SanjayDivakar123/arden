@@ -10,6 +10,7 @@ import fs from 'fs';
 import { loadConfig } from '../../config/loader.js';
 import { logger } from '../../utils/logger.js';
 import type { Agent } from '../../runtime/agent.js';
+import { handleSlashCommand } from '../../runtime/commands.js';
 
 const config = loadConfig();
 
@@ -96,6 +97,17 @@ export async function startWhatsAppAdapter(agent: Agent) {
 
         try {
           await sock.sendPresenceUpdate('composing', jid);
+
+          // Handle slash commands
+          if (text.startsWith('/')) {
+            const cmdReply = await handleSlashCommand(text, sessionId, agent);
+            if (cmdReply !== null) {
+              await sock.sendMessage(jid, { text: cmdReply });
+              await sock.sendPresenceUpdate('paused', jid);
+              continue;
+            }
+          }
+
           const isHeavyTask = text.length > 80 || /research|find|search|analyze|write|create|build|deploy|send|schedule|book|automate|look up|get me|can you/i.test(text);
           if (isHeavyTask) {
             const acks = ['On it.', 'Got it, working on it.', 'On it — give me a moment.', 'Sure, on it.', 'Working on that now.'];
