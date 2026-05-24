@@ -3,3 +3,4 @@ dist/
 .env
 workspace/logs/
 *.db
+.arden-secrets.json
