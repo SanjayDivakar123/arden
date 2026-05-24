@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.arden-secrets.json
+.arden-deploy.json
+.arden-whatsapp-auth/
+.arden-crons.json
+workspace/logs/
+*.db

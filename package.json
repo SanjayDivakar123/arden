@@ -1,0 +1,51 @@
+{
+  "name": "ardenai",
+  "version": "1.0.0",
+  "description": "The agent framework that finishes what it starts.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "tsx src/gateway/index.ts",
+    "build": "tsc",
+    "start": "node dist/gateway/index.js",
+    "cli": "tsx src/cli/index.ts"
+  },
+  "keywords": "[\"agent\",\"ai\",\"autonomous\",\"framework\",\"telegram\",\"whatsapp\",\"cli\",\"anthropic\",\"claude\"]",
+  "author": "Sanjay Divakar",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.98.0",
+    "@browserbasehq/sdk": "^2.12.0",
+    "@clack/prompts": "^1.4.0",
+    "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "better-sqlite3": "^12.10.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "grammy": "^1.43.0",
+    "node-cron": "^4.2.1",
+    "node-ssh": "^13.2.1",
+    "qrcode-terminal": "^0.12.0",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.1",
+    "@types/ws": "^8.18.1"
+  },
+  "bin": {
+    "arden": "bin/arden.js"
+  },
+  "homepage": "https://github.com/sanjaydivakar/arden",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sanjaydivakar/arden.git"
+  },
+  "files": "[\"src/\",\"bin/\",\"workspace/\",\"LICENSE\",\"README.md\"]",
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

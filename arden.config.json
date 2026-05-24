@@ -1,0 +1,20 @@
+{
+  "agent": {
+    "name": "Emma",
+    "model": "claude-haiku-4-5",
+    "fallback_model": "claude-haiku-4-5",
+    "workspace": "./workspace"
+  },
+  "channels": {},
+  "gateway": {
+    "port": 3000
+  },
+  "loop": {
+    "max_iterations": 10,
+    "require_completion_report": true
+  },
+  "heartbeat": {
+    "enabled": false,
+    "interval": "30m"
+  }
+}
