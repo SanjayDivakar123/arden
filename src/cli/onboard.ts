@@ -426,6 +426,22 @@ export async function promptToolKeys(secrets: Record<string, string>): Promise<v
     secrets.BROWSERBASE_PROJECT_ID = bbProject as string;
   }
 
+
+  // ── Bland.ai ────────────────────────────────────────────────────────────────
+  const addBland = await p.confirm({
+    message: 'Connect Bland.ai? (gives your agent the ability to make and receive phone calls)',
+    initialValue: false,
+  });
+  if (p.isCancel(addBland)) { p.cancel('Cancelled.'); process.exit(0); }
+
+  if (addBland) {
+    const blandKey = await p.password({
+      message: 'Bland.ai API key (app.bland.ai/settings)',
+      validate: (v) => (!(v ?? "").trim() ? 'Required.' : undefined),
+    });
+    if (p.isCancel(blandKey)) { p.cancel('Cancelled.'); process.exit(0); }
+    secrets.BLAND_API_KEY = blandKey as string;
+  }
   // ── Maton ───────────────────────────────────────────────────────────────────
   const addMaton = await p.confirm({
     message: 'Connect Maton? (gives your agent access to Gmail, Calendar, Slack, etc)',

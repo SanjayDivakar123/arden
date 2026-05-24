@@ -1,7 +1,7 @@
 {
   "agent": {
-    "name": "Emma",
-    "model": "claude-haiku-4-5",
+    "name": "r",
+    "model": "claude-opus-4-5",
     "fallback_model": "claude-haiku-4-5",
     "workspace": "./workspace"
   },

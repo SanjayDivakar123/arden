@@ -146,3 +146,6 @@ registerFinanceTools();
 registerResearchTools();
 registerContentTools();
 registerDeviceTools();
+
+import { registerBlandTools } from '../tools/bland.js';
+registerBlandTools();
