@@ -4,3 +4,7 @@ dist/
 workspace/logs/
 *.db
 .arden-secrets.json
+.arden-whatsapp-auth/
+.arden-deploy.json
+.arden-secrets.json
+.env
