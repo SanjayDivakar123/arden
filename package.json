@@ -1,6 +1,6 @@
 {
   "name": "ardenai",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "The agent framework that finishes what it starts.",
   "main": "index.js",
   "scripts": {
