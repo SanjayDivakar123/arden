@@ -598,8 +598,16 @@ function cmdChannels() {
   if (sub === 'login' && param) {
     const channel = param.toLowerCase();
     if (channel === 'whatsapp') {
-      log.info('WhatsApp login: starting gateway to show QR code.');
-      cmdDev(); // This will show logs in foreground
+      const running = await tryGatewayHealth();
+      if (running) {
+        log.info('WhatsApp login: gateway is already running. Tailing logs for QR code...');
+        try {
+          execSync('pm2 logs arden-gateway --lines 50', { stdio: 'inherit' });
+        } catch { /* ignore Ctrl+C */ }
+      } else {
+        log.info('WhatsApp login: starting gateway to show QR code.');
+        await cmdDev();
+      }
       return;
     }
     if (channel === 'telegram') {
@@ -827,6 +835,8 @@ function cmdHelp() {
     ['agents inspect',    'Show agent config + memory stats'],
     ['channels list',     'List connected channels'],
     ['channels add',      'Connect a new channel'],
+    ['channels login <ch>','Login to a channel (e.g. whatsapp)'],
+    ['channels logout <ch>','Logout from a channel'],
     ['tools list',        'List registered tools'],
     ['memory show',       'Print MEMORY.md'],
     ['memory clear',      'Wipe memory'],
