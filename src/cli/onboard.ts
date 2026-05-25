@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import * as p from '@clack/prompts';
 import fs from 'fs';
 import path from 'path';
@@ -27,10 +27,18 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-function startGatewayProcess(): 'started' | 'restarted' {
+function startGatewayProcess(foreground = false): 'started' | 'restarted' | 'foreground' {
   const gatewayEntry = path.join(PACKAGE_ROOT, 'src/gateway/index.ts');
   const localTsx = path.join(PACKAGE_ROOT, 'node_modules/.bin/tsx');
   const tsxInterpreter = fs.existsSync(localTsx) ? localTsx : 'tsx';
+
+  if (foreground) {
+    const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+    const args = ['tsx', gatewayEntry];
+    console.log(`\n\x1b[36m▸\x1b[0m Starting gateway in foreground for verification...`);
+    spawnSync(command, args, { stdio: 'inherit' });
+    return 'foreground';
+  }
 
   try {
     execSync('pm2 describe arden-gateway', { stdio: 'ignore' });
@@ -476,20 +484,24 @@ async function finalize(
   p.log.success(`Agent "${agentName}" is ready.`);
   p.log.info('API keys stored in .arden-secrets.json — never committed to git.');
   p.log.step('Next: edit workspace/SOUL.md to define your agent\'s identity.');
+
+  const verifyNow = await p.confirm({
+    message: 'Start gateway now to verify your setup (and scan QR code if using WhatsApp)?',
+    initialValue: true,
+  });
+
+  if (verifyNow && !p.isCancel(verifyNow)) {
+    try {
+      startGatewayProcess(true); // Run in foreground
+      p.log.success('Verification complete.');
+    } catch (err) {
+      p.log.error('Failed to start gateway in foreground: ' + String(err));
+    }
+  }
+
   try {
     const gatewayState = startGatewayProcess();
-    p.log.success(`Gateway ${gatewayState}.`);
-
-    if (channels.whatsapp?.enabled) {
-      p.log.info('WhatsApp is enabled. To pair, scan the QR code that will appear in the logs.');
-      p.log.step('Showing logs now. Press Ctrl+C to stop tailing logs after you have successfully scanned the QR.');
-      try {
-        execSync('pm2 logs arden-gateway --lines 50', { stdio: 'inherit' });
-      } catch {
-        // User probably hit Ctrl+C
-      }
-    }
-
+    p.log.success(`Gateway ${gatewayState} in the background.`);
     p.outro("Your agent is live. Chat with it on your connected channel, or run: arden chat\n\n  💡 To shape your agent's personality, just tell it who it is — it will remember.");
   } catch (err) {
     p.log.warn('Config saved, but the gateway did not start automatically.');

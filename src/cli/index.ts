@@ -864,36 +864,47 @@ function cmdHelp() {
 
 // ─── ROUTER ───────────────────────────────────────────────────────────────────
 
-switch (command) {
-  case 'onboard': import('./onboard.js').then(m => m.runOnboard()); break;
-  case 'init':     await cmdInit(); break;
-  case 'dev':      await cmdDev(); break;
-  case 'start':    await cmdStart(); break;
-  case 'stop':     cmdStop(); break;
-  case 'restart':  await cmdRestart(); break;
-  case 'erase':    await cmdErase(); break;
-  case 'status':   await cmdStatus(); break;
-  case 'chat':     await cmdChat(); break;
-  case 'logs':     cmdLogs(); break;
-  case 'agents':   cmdAgents(); break;
-  case 'channels': await cmdChannels(); break;
-  case 'tools':    cmdTools(); break;
-  case 'memory':   cmdMemory(); break;
-  case 'config':   cmdConfig(); break;
-  case 'doctor':   await cmdDoctor(); break;
-  case 'cron':     await cmdCron(); break;
-  case 'deploy':   cmdDeploy(); break;
-  case 'upgrade':  cmdUpgrade(); break;
-  case 'version':  cmdVersion(); break;
+async function runCommand() {
+  switch (command) {
+    case 'onboard': {
+      const m = await import('./onboard.js');
+      await m.runOnboard();
+      break;
+    }
+    case 'init':     await cmdInit(); break;
+    case 'dev':      await cmdDev(); break;
+    case 'start':    await cmdStart(); break;
+    case 'stop':     cmdStop(); break;
+    case 'restart':  await cmdRestart(); break;
+    case 'erase':    await cmdErase(); break;
+    case 'status':   await cmdStatus(); break;
+    case 'chat':     await cmdChat(); break;
+    case 'logs':     cmdLogs(); break;
+    case 'agents':   cmdAgents(); break;
+    case 'channels': await cmdChannels(); break;
+    case 'tools':    cmdTools(); break;
+    case 'memory':   cmdMemory(); break;
+    case 'config':   cmdConfig(); break;
+    case 'doctor':   await cmdDoctor(); break;
+    case 'cron':     await cmdCron(); break;
+    case 'deploy':   cmdDeploy(); break;
+    case 'upgrade':  cmdUpgrade(); break;
+    case 'version':  cmdVersion(); break;
   case 'help':
   case '--help':
   case '-h':
   case undefined:  cmdHelp(); break;
-  default:
-    log.error(`Unknown command: ${command}`);
-    log.dim('Run: arden help');
-    process.exit(1);
+    default:
+      log.error(`Unknown command: ${command}`);
+      log.dim('Run: arden help');
+      process.exit(1);
+  }
 }
+
+runCommand().catch((err) => {
+  log.error(String(err));
+  process.exit(1);
+});
 
 
 // ─── CRON ─────────────────────────────────────────────────────────────────────
