@@ -436,6 +436,9 @@ async function finalize(
   const s = p.spinner();
   s.start('Saving config...');
   const routing = routingModels(provider, model);
+  const linkedMatonApps = secrets.MATON_LINKED_APPS;
+  const secretsToSave = { ...secrets };
+  delete secretsToSave.MATON_LINKED_APPS;
 
   const config = {
     agent: {
@@ -452,7 +455,7 @@ async function finalize(
   };
 
   saveConfig(config);
-  saveSecrets(secrets);
+  saveSecrets(secretsToSave);
   ensureWorkspace(workspace, agentName);
 
   if (!fs.existsSync('.gitignore')) {
@@ -461,11 +464,13 @@ async function finalize(
 
   s.stop('Config saved.');
 
-  if (secrets.MATON_LINKED_APPS) {
+  if (linkedMatonApps) {
     const memPath = path.join(path.resolve(workspace), "MEMORY.md");
     const existing = fs.readFileSync(memPath, "utf-8");
-    fs.writeFileSync(memPath, existing + `n## Maton Connected Appsn${secrets.MATON_LINKED_APPS.split(",").map((a: string) => "- " + a.trim()).join("\n")}n`);
-    delete secrets.MATON_LINKED_APPS;
+    fs.writeFileSync(
+      memPath,
+      `${existing}\n## Maton Connected Apps\n${linkedMatonApps.split(",").map((a: string) => "- " + a.trim()).join("\n")}\n`
+    );
   }
 
   p.log.success(`Agent "${agentName}" is ready.`);
@@ -500,11 +505,13 @@ export async function promptToolKeys(secrets: Record<string, string>): Promise<v
     secrets.BROWSERBASE_API_KEY = bbKey as string;
 
     const bbProject = await p.text({
-      message: 'Browserbase Project ID',
-      validate: (v) => (!(v ?? "").trim() ? 'Required.' : undefined),
+      message: 'Browserbase Project ID (optional)',
+      placeholder: 'Leave blank to infer from API key',
     });
     if (p.isCancel(bbProject)) { p.cancel('Cancelled.'); process.exit(0); }
-    secrets.BROWSERBASE_PROJECT_ID = bbProject as string;
+    if ((bbProject as string).trim()) {
+      secrets.BROWSERBASE_PROJECT_ID = (bbProject as string).trim();
+    }
   }
 
 
@@ -522,6 +529,23 @@ export async function promptToolKeys(secrets: Record<string, string>): Promise<v
     });
     if (p.isCancel(blandKey)) { p.cancel('Cancelled.'); process.exit(0); }
     secrets.BLAND_API_KEY = blandKey as string;
+
+    const blandFrom = await p.text({
+      message: 'Bland caller ID / from number (optional)',
+      placeholder: '+15551234567',
+    });
+    if (p.isCancel(blandFrom)) { p.cancel('Cancelled.'); process.exit(0); }
+    if ((blandFrom as string).trim()) {
+      secrets.BLAND_FROM_NUMBER = (blandFrom as string).trim();
+    }
+
+    const blandEncryptedKey = await p.password({
+      message: 'Bland BYOT encrypted_key (optional)',
+    });
+    if (p.isCancel(blandEncryptedKey)) { p.cancel('Cancelled.'); process.exit(0); }
+    if ((blandEncryptedKey as string).trim()) {
+      secrets.BLAND_ENCRYPTED_KEY = (blandEncryptedKey as string).trim();
+    }
   }
   // ── Maton ───────────────────────────────────────────────────────────────────
   const addMaton = await p.confirm({

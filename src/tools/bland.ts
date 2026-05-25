@@ -1,44 +1,40 @@
-import fs from 'fs';
 import type { ArdenTool } from './registry.js';
 import { registry } from './registry.js';
+import { getSecret } from '../utils/secrets.js';
 
 const BLAND_API = 'https://api.bland.ai/v1';
 
 function getKey(): string {
-  const secretsPath = '/Users/sanjaydivakar/arden/.arden-secrets.json';
-  let secrets: Record<string, string> = {};
-  if (fs.existsSync(secretsPath)) {
-    secrets = JSON.parse(fs.readFileSync(secretsPath, 'utf8'));
-  }
-  const key = secrets.BLAND_API_KEY ?? process.env.BLAND_API_KEY ?? '';
+  const key = getSecret('BLAND_API_KEY');
   if (!key) throw new Error('BLAND_API_KEY not configured');
   return key;
 }
 
 function getFromNumber(): string {
-  try {
-    const s = JSON.parse(fs.readFileSync('/Users/sanjaydivakar/arden/.arden-secrets.json', 'utf8'));
-    return s.BLAND_FROM_NUMBER ?? process.env.BLAND_FROM_NUMBER ?? '';
-  } catch { return process.env.BLAND_FROM_NUMBER ?? ''; }
+  return getSecret('BLAND_FROM_NUMBER');
 }
 
 function getEncryptedKey(): string {
-  try {
-    const s = JSON.parse(fs.readFileSync('/Users/sanjaydivakar/arden/.arden-secrets.json', 'utf8'));
-    return s.BLAND_ENCRYPTED_KEY ?? process.env.BLAND_ENCRYPTED_KEY ?? '';
-  } catch { return process.env.BLAND_ENCRYPTED_KEY ?? ''; }
+  return getSecret('BLAND_ENCRYPTED_KEY');
 }
 
 async function blandFetch(endpoint: string, method = 'GET', body?: object) {
+  const encryptedKey = getEncryptedKey();
   const res = await fetch(`${BLAND_API}${endpoint}`, {
     method,
     headers: {
       'authorization': getKey(),
       'Content-Type': 'application/json',
+      ...(encryptedKey ? { encrypted_key: encryptedKey } : {}),
     },
     body: body ? JSON.stringify(body) : null,
   });
-  return res.json();
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(`Bland API error ${res.status}: ${JSON.stringify(data)}`);
+  }
+  return data;
 }
 
 export const blandTools: ArdenTool[] = [
@@ -64,9 +60,9 @@ export const blandTools: ArdenTool[] = [
         task,
         model: 'enhanced',
         max_duration: parseInt(max_duration ?? '10'),
-        from: getFromNumber(),
-        encrypted_key: getEncryptedKey(),
       };
+      const from = getFromNumber();
+      if (from) body.from = from;
       if (voice) body.voice = voice;
       if (first_sentence) body.first_sentence = first_sentence;
       if (wait_for_greeting) body.wait_for_greeting = wait_for_greeting === 'true';
@@ -169,6 +165,8 @@ export const blandTools: ArdenTool[] = [
     handler: async (input) => {
       const { phone_number, pathway_id, first_sentence } = input as Record<string, string>;
       const body: Record<string, unknown> = { phone_number, pathway_id };
+      const from = getFromNumber();
+      if (from) body.from = from;
       if (first_sentence) body.first_sentence = first_sentence;
       const data = await blandFetch('/calls', 'POST', body);
       return { success: true, call_id: data.call_id, status: data.status };

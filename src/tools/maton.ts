@@ -1,25 +1,23 @@
 import { registry } from './registry.js';
 import { logger } from '../utils/logger.js';
-import fs from 'fs';
+import { getSecret } from '../utils/secrets.js';
+
+const MATON_API = 'https://api.maton.ai';
 
 function getApiKey(): string {
-  const secretsPath = '.arden-secrets.json';
-  if (fs.existsSync(secretsPath)) {
-    const secrets = JSON.parse(fs.readFileSync(secretsPath, 'utf-8'));
-    if (secrets.MATON_API_KEY) return secrets.MATON_API_KEY;
-  }
-  return process.env.MATON_API_KEY ?? '';
+  return getSecret('MATON_API_KEY');
 }
 
-async function matonRequest(endpoint: string, method: string, body?: object) {
+async function matonRequest(endpoint: string, method: string, body?: object, connectionId?: string) {
   const apiKey = getApiKey();
   if (!apiKey) throw new Error('MATON_API_KEY not set. Add it via arden onboard.');
 
-  const res = await fetch(`https://api.maton.ai/v1${endpoint}`, {
+  const res = await fetch(`${MATON_API}${endpoint}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
+      ...(connectionId ? { 'Maton-Connection': connectionId } : {}),
     },
     body: body ? JSON.stringify(body) : null,
   });
@@ -32,43 +30,67 @@ async function matonRequest(endpoint: string, method: string, body?: object) {
   return res.json();
 }
 
+function parseJsonParam(value: string | undefined, fieldName: string): object | undefined {
+  if (!value) return undefined;
+  try {
+    return JSON.parse(value) as object;
+  } catch {
+    throw new Error(`${fieldName} must be valid JSON.`);
+  }
+}
+
+function normalizeProxyPath(path: string): string {
+  return path.startsWith('/') ? path : `/${path}`;
+}
+
 export function registerMatonTools() {
   registry.register({
     name: 'maton_list_connections',
-    description: 'List all available app connections in Maton (Gmail, Calendar, Slack, etc).',
+    description: 'List available app connections in Maton. Optionally filter by app and status.',
     parameters: {
       type: 'object',
-      properties: {},
+      properties: {
+        app: { type: 'string', description: 'Optional app filter, e.g. google-mail, google-calendar, slack.' },
+        status: { type: 'string', description: 'Optional status filter, e.g. ACTIVE, PENDING, FAILED.' },
+      },
       required: [],
     },
-    handler: async () => {
+    handler: async (input) => {
+      const { app, status } = input as { app?: string; status?: string };
       logger.info('MATON', 'Listing connections');
-      const data = await matonRequest('/connections', 'GET') as Record<string, unknown>;
+      const params = new URLSearchParams();
+      if (app) params.set('app', app);
+      if (status) params.set('status', status);
+      const qs = params.toString();
+      const data = await matonRequest(`/connections${qs ? `?${qs}` : ''}`, 'GET') as Record<string, unknown>;
       return JSON.stringify(data);
     },
   });
 
   registry.register({
     name: 'maton_run_action',
-    description: 'Run an action on a connected app via Maton. Use maton_list_connections first to see what is available.',
+    description: 'Run a native app API call via Maton. Prefer maton_proxy_request for new tasks. The action value must be a native app path like /google-mail/gmail/v1/users/me/messages.',
     parameters: {
       type: 'object',
       properties: {
-        connection_id: { type: 'string', description: 'The Maton connection ID (e.g. gmail, google-calendar, slack).' },
-        action:        { type: 'string', description: 'The action to run (e.g. send_email, create_event, send_message).' },
-        params:        { type: 'string', description: 'JSON string of parameters for the action.' },
+        connection_id: { type: 'string', description: 'Optional Maton connection ID to route to a specific account.' },
+        action:        { type: 'string', description: 'Native app path, e.g. /google-mail/gmail/v1/users/me/messages.' },
+        params:        { type: 'string', description: 'JSON string body for POST requests. Leave blank for GET.' },
+        method:        { type: 'string', description: 'HTTP method: GET, POST, PUT, DELETE. Defaults to POST.', enum: ['GET', 'POST', 'PUT', 'DELETE'] },
       },
-      required: ['connection_id', 'action', 'params'],
+      required: ['action'],
     },
     handler: async (input) => {
-      const { connection_id, action, params } = input as {
-        connection_id: string;
+      const { connection_id, action, params, method } = input as {
+        connection_id?: string;
         action: string;
-        params: string;
+        params?: string;
+        method?: string;
       };
-      logger.info('MATON', `Running ${action} on ${connection_id}`);
-      const parsedParams = JSON.parse(params);
-      const data = await matonRequest(`/connections/${connection_id}/actions/${action}`, 'POST', parsedParams);
+      const httpMethod = method ?? 'POST';
+      logger.info('MATON', `${httpMethod} ${action}`);
+      const parsedParams = parseJsonParam(params, 'params');
+      const data = await matonRequest(normalizeProxyPath(action), httpMethod, parsedParams, connection_id);
       return JSON.stringify(data);
     },
   });
@@ -79,25 +101,26 @@ export function registerMatonTools() {
     parameters: {
       type: 'object',
       properties: {
-        connection_id: { type: 'string', description: 'The Maton connection ID.' },
+        connection_id: { type: 'string', description: 'Optional Maton connection ID to route to a specific account.' },
         method:        { type: 'string', description: 'HTTP method: GET, POST, PUT, DELETE.', enum: ['GET', 'POST', 'PUT', 'DELETE'] },
-        path:          { type: 'string', description: 'API path to call on the connected service.' },
+        path:          { type: 'string', description: 'Maton proxy path including the app name, e.g. /google-mail/gmail/v1/users/me/messages or /google-calendar/calendar/v3/calendars/primary/events.' },
         body:          { type: 'string', description: 'JSON string body for POST/PUT requests.' },
       },
-      required: ['connection_id', 'method', 'path'],
+      required: ['method', 'path'],
     },
     handler: async (input) => {
       const { connection_id, method, path, body } = input as {
-        connection_id: string;
+        connection_id?: string;
         method: string;
         path: string;
         body?: string;
       };
-      logger.info('MATON', `Proxy ${method} ${path} via ${connection_id}`);
+      logger.info('MATON', `Proxy ${method} ${path}`);
       const data = await matonRequest(
-        `/proxy/${connection_id}${path}`,
+        normalizeProxyPath(path),
         method,
-        body ? JSON.parse(body) : undefined,
+        parseJsonParam(body, 'body'),
+        connection_id,
       );
       return JSON.stringify(data);
     },

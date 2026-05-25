@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
+import { loadSecrets } from '../utils/secrets.js';
 
 dotenv.config();
 
@@ -49,18 +50,6 @@ export function loadConfig(configPath = './arden.config.json'): ArdenConfig {
   if (!fs.existsSync(resolved)) return DEFAULTS;
   const raw = JSON.parse(fs.readFileSync(resolved, 'utf-8'));
   return { ...DEFAULTS, ...raw, agent: { ...DEFAULTS.agent, ...raw.agent } };
-}
-
-function loadSecrets(): Record<string, string> {
-  const secretsPath = path.resolve('.arden-secrets.json');
-  if (fs.existsSync(secretsPath)) {
-    try {
-      return JSON.parse(fs.readFileSync(secretsPath, 'utf-8'));
-    } catch {
-      return {};
-    }
-  }
-  return {};
 }
 
 const secrets = loadSecrets();
