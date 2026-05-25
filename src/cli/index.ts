@@ -569,7 +569,7 @@ function cmdAgents() {
 
 // ─── CHANNELS ─────────────────────────────────────────────────────────────────
 
-function cmdChannels() {
+async function cmdChannels() {
   const config = readConfig();
   if (!config) { log.error('No arden.config.json found. Run: arden init'); return; }
 
@@ -866,22 +866,22 @@ function cmdHelp() {
 
 switch (command) {
   case 'onboard': import('./onboard.js').then(m => m.runOnboard()); break;
-  case 'init':     cmdInit(); break;
-  case 'dev':      cmdDev(); break;
-  case 'start':    cmdStart(); break;
+  case 'init':     await cmdInit(); break;
+  case 'dev':      await cmdDev(); break;
+  case 'start':    await cmdStart(); break;
   case 'stop':     cmdStop(); break;
-  case 'restart':  cmdRestart(); break;
-  case 'erase':    cmdErase(); break;
-  case 'status':   cmdStatus(); break;
-  case 'chat':     cmdChat(); break;
+  case 'restart':  await cmdRestart(); break;
+  case 'erase':    await cmdErase(); break;
+  case 'status':   await cmdStatus(); break;
+  case 'chat':     await cmdChat(); break;
   case 'logs':     cmdLogs(); break;
   case 'agents':   cmdAgents(); break;
-  case 'channels': cmdChannels(); break;
+  case 'channels': await cmdChannels(); break;
   case 'tools':    cmdTools(); break;
   case 'memory':   cmdMemory(); break;
   case 'config':   cmdConfig(); break;
-  case 'doctor':   cmdDoctor(); break;
-  case 'cron':     cmdCron(); break;
+  case 'doctor':   await cmdDoctor(); break;
+  case 'cron':     await cmdCron(); break;
   case 'deploy':   cmdDeploy(); break;
   case 'upgrade':  cmdUpgrade(); break;
   case 'version':  cmdVersion(); break;
