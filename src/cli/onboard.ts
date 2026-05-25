@@ -479,6 +479,17 @@ async function finalize(
   try {
     const gatewayState = startGatewayProcess();
     p.log.success(`Gateway ${gatewayState}.`);
+
+    if (channels.whatsapp?.enabled) {
+      p.log.info('WhatsApp is enabled. Tailing logs for QR code...');
+      p.log.info('Press Ctrl+C to stop tailing once you have scanned the QR.');
+      try {
+        execSync('pm2 logs arden-gateway --lines 20', { stdio: 'inherit' });
+      } catch {
+        // User probably hit Ctrl+C
+      }
+    }
+
     p.outro("Your agent is live. Chat with it on your connected channel, or run: arden chat\n\n  💡 To shape your agent's personality, just tell it who it is — it will remember.");
   } catch (err) {
     p.log.warn('Config saved, but the gateway did not start automatically.');

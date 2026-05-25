@@ -277,8 +277,13 @@ async function cmdDev() {
   log.info('Starting Arden in dev mode...');
   log.blank();
   if (!(await ensureGatewayPortAvailable())) return;
-  if (!ensurePm2Available()) return;
-  spawnGatewayWithTsx();
+
+  const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  const args = ['tsx', GATEWAY_ENTRY];
+
+  log.info(`Spawning gateway: ${command} ${args.join(' ')}`);
+  const proc = spawn(command, args, { stdio: 'inherit' });
+  proc.on('exit', (code) => process.exit(code ?? 0));
 }
 
 async function cmdStart() {
@@ -318,6 +323,8 @@ async function cmdRestart() {
     execSync('pm2 describe arden-gateway', { stdio: 'ignore' });
     execSync('pm2 restart arden-gateway --update-env', { stdio: 'inherit' });
     log.success('Gateway restarted.');
+    log.info('Showing last 5 lines of logs:');
+    execSync('pm2 logs arden-gateway --lines 5 --no-daemon', { stdio: 'inherit' });
   } catch {
     log.warn('Gateway was not registered with PM2. Starting it now.');
     if (!(await ensureGatewayPortAvailable())) return;
@@ -899,6 +906,7 @@ async function cmdCron() {
 
     const job = addCron({
       expression,
+      schedule: instruction,
       instruction,
       createdBy: 'user',
       enabled: true,

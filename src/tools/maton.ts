@@ -24,12 +24,13 @@ async function matonRequest(endpoint: string, method: string, body?: object, con
   });
 
   if (!res.ok) {
+    const text = await res.text();
     let err: string;
     try {
-      const json = await res.json() as { error?: string; message?: string };
+      const json = JSON.parse(text) as { error?: string; message?: string };
       err = json.error ?? json.message ?? JSON.stringify(json);
     } catch {
-      err = await res.text();
+      err = text;
     }
     throw new Error(`Maton API error ${res.status}: ${err}`);
   }

@@ -251,12 +251,16 @@ export function registerBrowserbaseTools() {
       const { session_id, selector, state, timeout } = input as { session_id: string; selector?: string; state?: 'load' | 'domcontentloaded' | 'networkidle'; timeout?: string };
       const session = await getSession(session_id);
       const t = parseInt(timeout ?? '30000');
+
+      const effectiveState = selector ? state : (state ?? 'load');
+
       if (selector) {
         await session.page.waitForSelector(selector, { timeout: t });
-      } else if (state) {
-        await session.page.waitForLoadState(state, { timeout: t });
+        if (state) await session.page.waitForLoadState(state, { timeout: t });
+      } else {
+        await session.page.waitForLoadState(effectiveState, { timeout: t });
       }
-      return { success: true, session_id, selector, state };
+      return { success: true, session_id, selector, state: effectiveState };
     },
   });
 
