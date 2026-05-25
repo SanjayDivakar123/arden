@@ -80,6 +80,91 @@ function normalizeProxyPath(rawPath: string, app?: string): string {
   return `/${parts.join('/')}${query}`;
 }
 
+type ZohoAccount = {
+  accountId?: string | number;
+  account_id?: string | number;
+  accountID?: string | number;
+  zuid?: string | number;
+  isDefaultAccount?: boolean;
+  incomingUserName?: string;
+  emailAddress?: Array<{
+    mailId?: string;
+    isPrimary?: boolean;
+  }>;
+};
+
+function assertNonEmpty(value: string | undefined, fieldName: string): string {
+  const trimmed = value?.trim();
+  if (!trimmed) throw new Error(`${fieldName} is required.`);
+  return trimmed;
+}
+
+function cleanOptional(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function base64UrlEncode(value: string): string {
+  return Buffer.from(value, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function buildGmailRawMessage(input: {
+  from?: string;
+  to: string;
+  cc?: string;
+  bcc?: string;
+  subject: string;
+  content: string;
+  contentType: string;
+}): string {
+  const headers = [
+    input.from ? `From: ${input.from}` : null,
+    `To: ${input.to}`,
+    input.cc ? `Cc: ${input.cc}` : null,
+    input.bcc ? `Bcc: ${input.bcc}` : null,
+    `Subject: ${input.subject}`,
+    `Content-Type: ${input.contentType === 'html' ? 'text/html' : 'text/plain'}; charset=UTF-8`,
+    'MIME-Version: 1.0',
+  ].filter(Boolean);
+
+  return base64UrlEncode(`${headers.join('\r\n')}\r\n\r\n${input.content}`);
+}
+
+function getZohoAccountId(account: ZohoAccount): string | undefined {
+  const id = account.accountId ?? account.account_id ?? account.accountID ?? account.zuid;
+  return id === undefined ? undefined : String(id);
+}
+
+function getZohoFromAddress(account: ZohoAccount): string | undefined {
+  const primary = account.emailAddress?.find((email) => email.isPrimary)?.mailId;
+  return primary ?? account.emailAddress?.[0]?.mailId ?? account.incomingUserName;
+}
+
+async function resolveZohoAccount(accountId: string | undefined, connectionId: string | undefined): Promise<{
+  accountId: string;
+  fromAddress?: string;
+}> {
+  if (accountId?.trim()) return { accountId: accountId.trim() };
+
+  const data = await matonRequest('/zoho-mail/api/accounts', 'GET', undefined, connectionId) as {
+    data?: ZohoAccount[];
+  };
+  const accounts = Array.isArray(data.data) ? data.data : [];
+  const account = accounts.find((item) => item.isDefaultAccount) ?? accounts[0];
+  const resolved = account ? getZohoAccountId(account) : undefined;
+  if (!resolved) {
+    throw new Error('Could not resolve a Zoho Mail account ID. Pass account_id explicitly.');
+  }
+  const inferredFromAddress = account ? getZohoFromAddress(account) : undefined;
+  return inferredFromAddress
+    ? { accountId: resolved, fromAddress: inferredFromAddress }
+    : { accountId: resolved };
+}
+
 export function registerMatonTools() {
   registry.register({
     name: 'maton_list_connections',
@@ -169,5 +254,108 @@ export function registerMatonTools() {
     },
   });
 
-  logger.success('TOOLS', 'Maton tools registered: maton_list_connections, maton_run_action, maton_proxy_request');
+  registry.register({
+    name: 'maton_send_email',
+    description: 'Send email through Maton using native provider APIs, bypassing generic action routing. Supports zoho-mail via /zoho-mail/api/accounts/{accountId}/messages and google-mail via /google-mail/gmail/v1/users/me/messages/send. Use only when the user explicitly asks to send email.',
+    parameters: {
+      type: 'object',
+      properties: {
+        app:            { type: 'string', description: 'Email app to send through.', enum: ['zoho-mail', 'google-mail'] },
+        connection_id:  { type: 'string', description: 'Optional Maton connection ID to route to a specific account.' },
+        account_id:     { type: 'string', description: 'Zoho Mail account ID. Optional; Arden will use the default Zoho account when omitted.' },
+        from_address:   { type: 'string', description: 'Optional sender address. Must be authorized by the connected mail account.' },
+        to:             { type: 'string', description: 'Recipient email address or comma-separated recipient list.' },
+        cc:             { type: 'string', description: 'Optional comma-separated CC recipients.' },
+        bcc:            { type: 'string', description: 'Optional comma-separated BCC recipients.' },
+        subject:        { type: 'string', description: 'Email subject.' },
+        content:        { type: 'string', description: 'Email body content.' },
+        content_type:   { type: 'string', description: 'Email body type. Defaults to text.', enum: ['text', 'html'] },
+      },
+      required: ['app', 'to', 'subject', 'content'],
+    },
+    handler: async (input) => {
+      const {
+        app,
+        connection_id,
+        account_id,
+        from_address,
+        to,
+        cc,
+        bcc,
+        subject,
+        content,
+        content_type,
+      } = input as Record<string, string | undefined>;
+
+      const mailApp = assertNonEmpty(app, 'app');
+      const toAddress = assertNonEmpty(to, 'to');
+      const emailSubject = assertNonEmpty(subject, 'subject');
+      const emailContent = assertNonEmpty(content, 'content');
+      const contentType = content_type === 'html' ? 'html' : 'text';
+
+      if (mailApp === 'zoho-mail') {
+        const zohoAccount = await resolveZohoAccount(account_id, connection_id);
+        const fromAddress = cleanOptional(from_address) ?? zohoAccount.fromAddress;
+        if (!fromAddress) {
+          throw new Error('from_address is required for Zoho Mail when Arden cannot infer it from /api/accounts.');
+        }
+        const body: Record<string, string> = {
+          fromAddress,
+          toAddress,
+          subject: emailSubject,
+          content: emailContent,
+          mailFormat: contentType === 'html' ? 'html' : 'plaintext',
+        };
+        const ccAddress = cleanOptional(cc);
+        const bccAddress = cleanOptional(bcc);
+        if (ccAddress) body.ccAddress = ccAddress;
+        if (bccAddress) body.bccAddress = bccAddress;
+
+        logger.info('MATON', `Send email via /zoho-mail/api/accounts/${zohoAccount.accountId}/messages`);
+        const data = await matonRequest(
+          `/zoho-mail/api/accounts/${encodeURIComponent(zohoAccount.accountId)}/messages`,
+          'POST',
+          body,
+          connection_id,
+        );
+        return JSON.stringify(data);
+      }
+
+      if (mailApp === 'google-mail') {
+        logger.info('MATON', 'Send email via /google-mail/gmail/v1/users/me/messages/send');
+        const message = {
+          to: toAddress,
+          subject: emailSubject,
+          content: emailContent,
+          contentType,
+        } as {
+          from?: string;
+          to: string;
+          cc?: string;
+          bcc?: string;
+          subject: string;
+          content: string;
+          contentType: string;
+        };
+        const fromAddress = cleanOptional(from_address);
+        const ccAddress = cleanOptional(cc);
+        const bccAddress = cleanOptional(bcc);
+        if (fromAddress) message.from = fromAddress;
+        if (ccAddress) message.cc = ccAddress;
+        if (bccAddress) message.bcc = bccAddress;
+        const raw = buildGmailRawMessage(message);
+        const data = await matonRequest(
+          '/google-mail/gmail/v1/users/me/messages/send',
+          'POST',
+          { raw },
+          connection_id,
+        );
+        return JSON.stringify(data);
+      }
+
+      throw new Error(`Unsupported email app for maton_send_email: ${mailApp}`);
+    },
+  });
+
+  logger.success('TOOLS', 'Maton tools registered: maton_list_connections, maton_run_action, maton_proxy_request, maton_send_email');
 }
