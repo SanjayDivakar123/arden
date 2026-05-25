@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { loadConfig, env } from '../config/loader.js';
 import { Agent } from '../runtime/agent.js';
 import { logger } from '../utils/logger.js';
+import { loadSecrets } from '../utils/secrets.js';
 
 const config = loadConfig();
 const app = express();
@@ -82,7 +83,24 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-const PORT = env.ARDEN_GATEWAY_PORT;
+const secrets = loadSecrets();
+const configuredPort = Number(
+  process.env.ARDEN_GATEWAY_PORT
+    ?? secrets.ARDEN_GATEWAY_PORT
+    ?? config.gateway?.port
+    ?? env.ARDEN_GATEWAY_PORT
+);
+const PORT = Number.isInteger(configuredPort) && configuredPort > 0 ? configuredPort : 3000;
+server.on('error', (err: Error & { code?: string }) => {
+  if (err.code === 'EADDRINUSE') {
+    logger.error('GATEWAY', `Port ${PORT} is already in use.`);
+    logger.info('GATEWAY', `Stop the existing process or run with ARDEN_GATEWAY_PORT=${PORT + 1}.`);
+  } else {
+    logger.error('GATEWAY', String(err));
+  }
+  process.exit(1);
+});
+
 server.listen(PORT, () => {
   logger.success('GATEWAY', `Arden gateway running on port ${PORT}`);
   logger.success('GATEWAY', `Agent: ${config.agent.name} (${config.agent.model})`);
@@ -118,16 +136,23 @@ async function getNotifyFn() {
     }
     // Send via WhatsApp
     if (cfg.channels.whatsapp?.enabled) {
-      const allowlist = cfg.channels.whatsapp.allowlist;
-      if (allowlist.length > 0) {
-        try {
-          const { startWhatsAppNotify } = await import('../adapters/whatsapp/index.js');
-          for (const number of allowlist) {
-            await startWhatsAppNotify(number, msg);
-          }
-        } catch (err) {
-          logger.error('NOTIFY', 'WhatsApp notify failed: ' + String(err));
+      const recipients = Array.from(new Set([
+        ...cfg.channels.whatsapp.allowlist,
+        env.WHATSAPP_NUMBER,
+      ].filter(Boolean)));
+
+      if (recipients.length === 0) {
+        logger.warn('NOTIFY', 'WhatsApp notification skipped: no outbound recipient configured. Add a number to channels.whatsapp.allowlist or WHATSAPP_NUMBER.');
+        return;
+      }
+
+      try {
+        const { startWhatsAppNotify } = await import('../adapters/whatsapp/index.js');
+        for (const number of recipients) {
+          await startWhatsAppNotify(number, msg);
         }
+      } catch (err) {
+        logger.error('NOTIFY', 'WhatsApp notify failed: ' + String(err));
       }
     }
   };

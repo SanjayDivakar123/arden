@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execSync, spawn } from 'child_process';
 import fs from 'fs';
+import net from 'net';
 import path from 'path';
 import readline from 'readline';
 import { fileURLToPath } from 'url';
@@ -42,9 +43,17 @@ function readConfig() {
 }
 
 function readSecrets() {
-  const p = path.resolve('.arden-secrets.json');
-  if (!fs.existsSync(p)) return {};
-  return JSON.parse(fs.readFileSync(p, 'utf-8'));
+  const candidates = [
+    path.resolve('.arden-secrets.json'),
+    path.join(process.env.HOME ?? '', '.arden-secrets.json'),
+  ];
+
+  for (const p of candidates) {
+    if (!p || !fs.existsSync(p)) continue;
+    return JSON.parse(fs.readFileSync(p, 'utf-8'));
+  }
+
+  return {};
 }
 
 function writeConfig(config: object) {
@@ -55,16 +64,62 @@ function tsxCommand() {
   return fs.existsSync(LOCAL_TSX) ? LOCAL_TSX : 'tsx';
 }
 
+function shellQuote(value: string) {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function ensurePm2Available(): boolean {
+  try {
+    execSync('command -v pm2', { stdio: 'ignore' });
+    return true;
+  } catch {
+    log.error('PM2 is required to run Arden in the background.');
+    log.dim('Install it with: npm install -g pm2');
+    process.exitCode = 1;
+    return false;
+  }
+}
+
+function startGatewayWithPm2(entry: string, interpreter: string, mode: 'dev' | 'production') {
+  execSync('pm2 delete arden-gateway >/dev/null 2>&1 || true', { stdio: 'ignore' });
+  execSync(
+    [
+      'pm2 start',
+      shellQuote(entry),
+      '--name arden-gateway',
+      '--interpreter',
+      shellQuote(interpreter),
+      '--cwd',
+      shellQuote(process.cwd()),
+    ].join(' '),
+    { stdio: 'inherit' }
+  );
+  try {
+    execSync('pm2 save', { stdio: 'ignore' });
+  } catch {
+    log.warn('Gateway started, but PM2 save failed. Run `pm2 save` later to persist it across reboot.');
+  }
+  log.success(`Gateway started in the background (${mode}).`);
+  log.dim('Use `arden status` to check it, `arden logs` or `pm2 logs arden-gateway` to watch logs, and `arden stop` to stop it.');
+}
+
 function spawnGatewayWithTsx() {
-  return spawn(tsxCommand(), [GATEWAY_ENTRY], {
-    cwd: process.cwd(),
-    stdio: 'inherit',
-  });
+  startGatewayWithPm2(GATEWAY_ENTRY, tsxCommand(), 'dev');
+}
+
+function gatewayPort() {
+  const config = readConfig();
+  const secrets = readSecrets() as Record<string, string>;
+  const raw = process.env.ARDEN_GATEWAY_PORT
+    ?? secrets.ARDEN_GATEWAY_PORT
+    ?? config?.gateway?.port
+    ?? 3000;
+  const port = Number(raw);
+  return Number.isInteger(port) && port > 0 ? port : 3000;
 }
 
 function gatewayUrl() {
-  const config = readConfig();
-  const port = process.env.ARDEN_GATEWAY_PORT ?? config?.gateway?.port ?? 3000;
+  const port = gatewayPort();
   return `http://localhost:${port}`;
 }
 
@@ -85,6 +140,58 @@ async function reloadGatewayCrons(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const tester = net.createServer();
+    tester.once('error', () => resolve(false));
+    tester.once('listening', () => {
+      tester.close(() => resolve(true));
+    });
+    tester.listen(port);
+  });
+}
+
+async function tryGatewayHealth(): Promise<Record<string, unknown> | null> {
+  try {
+    return await fetchGateway('/health') as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function printGatewaySummary(data: Record<string, unknown>) {
+  console.log(`  ${C.dim}Agent   ${C.reset} ${data.agent}`);
+  console.log(`  ${C.dim}Model   ${C.reset} ${data.model}`);
+  if (data.uptime !== undefined) {
+    console.log(`  ${C.dim}Uptime  ${C.reset} ${Math.floor(Number(data.uptime))}s`);
+  }
+  console.log(`  ${C.dim}URL     ${C.reset} ${gatewayUrl()}`);
+}
+
+async function ensureGatewayPortAvailable(): Promise<boolean> {
+  const port = gatewayPort();
+  if (await isPortAvailable(port)) return true;
+
+  const runningGateway = await tryGatewayHealth();
+  if (runningGateway?.status === 'ok') {
+    log.warn(`Arden gateway is already running on port ${port}.`);
+    log.blank();
+    printGatewaySummary(runningGateway);
+    log.blank();
+    log.dim('Use `arden status` to inspect it, `arden restart` to refresh PM2,');
+    log.dim('or set ARDEN_GATEWAY_PORT to run another copy.');
+    return false;
+  }
+
+  log.error(`Port ${port} is already in use.`);
+  log.dim(`  Find the process: lsof -i :${port}`);
+  log.dim('  Check PM2:         pm2 list');
+  log.dim('  Stop PM2 gateway:  pm2 delete arden-gateway');
+  log.dim(`  Use another port:  ARDEN_GATEWAY_PORT=${port + 1} arden dev`);
+  process.exitCode = 1;
+  return false;
 }
 
 function askQuestion(question: string): Promise<string> {
@@ -165,32 +272,36 @@ async function cmdInit() {
 
 // ─── DEV / START / STOP / RESTART ────────────────────────────────────────────
 
-function cmdDev() {
+async function cmdDev() {
   printBanner();
   log.info('Starting Arden in dev mode...');
   log.blank();
-  const proc = spawnGatewayWithTsx();
-  proc.on('exit', (code) => process.exit(code ?? 0));
+  if (!(await ensureGatewayPortAvailable())) return;
+  if (!ensurePm2Available()) return;
+  spawnGatewayWithTsx();
 }
 
-function cmdStart() {
+async function cmdStart() {
   printBanner();
   log.info('Starting Arden in production mode...');
+  log.blank();
+  if (!(await ensureGatewayPortAvailable())) return;
+  if (!ensurePm2Available()) return;
   if (!fs.existsSync(DIST_GATEWAY_ENTRY)) {
     try {
       execSync('npm run build', { cwd: PACKAGE_ROOT, stdio: 'inherit' });
     } catch {
       log.warn('Build failed or package directory is read-only. Falling back to TypeScript runtime.');
-      const fallback = spawnGatewayWithTsx();
-      fallback.on('exit', (code) => process.exit(code ?? 0));
+      spawnGatewayWithTsx();
       return;
     }
   }
 
-  const proc = fs.existsSync(DIST_GATEWAY_ENTRY)
-    ? spawn('node', [DIST_GATEWAY_ENTRY], { cwd: process.cwd(), stdio: 'inherit' })
-    : spawnGatewayWithTsx();
-  proc.on('exit', (code) => process.exit(code ?? 0));
+  if (fs.existsSync(DIST_GATEWAY_ENTRY)) {
+    startGatewayWithPm2(DIST_GATEWAY_ENTRY, process.execPath, 'production');
+  } else {
+    spawnGatewayWithTsx();
+  }
 }
 
 function cmdStop() {
@@ -201,9 +312,17 @@ function cmdStop() {
   }
 }
 
-function cmdRestart() {
-  execSync("pm2 restart arden-gateway", { stdio: "inherit" });
-  log.success("Gateway restarted.");
+async function cmdRestart() {
+  if (!ensurePm2Available()) return;
+  try {
+    execSync('pm2 describe arden-gateway', { stdio: 'ignore' });
+    execSync('pm2 restart arden-gateway --update-env', { stdio: 'inherit' });
+    log.success('Gateway restarted.');
+  } catch {
+    log.warn('Gateway was not registered with PM2. Starting it now.');
+    if (!(await ensureGatewayPortAvailable())) return;
+    spawnGatewayWithTsx();
+  }
 }
 
 // ─── ERASE ───────────────────────────────────────────────────────────────────
@@ -652,8 +771,8 @@ function cmdHelp() {
   console.log(`${C.bold}Usage:${C.reset} arden <command>\n`);
   const commands = [
     ['init',              'Scaffold a new agent project'],
-    ['dev',               'Start gateway in dev mode'],
-    ['start',             'Start gateway in production mode'],
+    ['dev',               'Start gateway in dev mode in background'],
+    ['start',             'Start gateway in production mode in background'],
     ['stop',              'Stop the running gateway'],
     ['restart',           'Restart the gateway'],
     ['erase',             'Erase local agent state and start fresh'],
