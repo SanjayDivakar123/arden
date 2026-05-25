@@ -3,12 +3,18 @@ import { execSync, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
+import { fileURLToPath } from 'url';
 import { printBanner } from '../utils/banner.js';
 
 const args = process.argv.slice(2);
 const command = args[0];
 const sub = args[1];
 const param = args[2];
+const CLI_DIR = path.dirname(fileURLToPath(import.meta.url));
+const PACKAGE_ROOT = path.resolve(CLI_DIR, '../..');
+const GATEWAY_ENTRY = path.join(PACKAGE_ROOT, 'src/gateway/index.ts');
+const DIST_GATEWAY_ENTRY = path.join(PACKAGE_ROOT, 'dist/gateway/index.js');
+const LOCAL_TSX = path.join(PACKAGE_ROOT, 'node_modules/.bin/tsx');
 
 const C = {
   reset: '\x1b[0m',
@@ -43,6 +49,17 @@ function readSecrets() {
 
 function writeConfig(config: object) {
   fs.writeFileSync('arden.config.json', JSON.stringify(config, null, 2));
+}
+
+function tsxCommand() {
+  return fs.existsSync(LOCAL_TSX) ? LOCAL_TSX : 'tsx';
+}
+
+function spawnGatewayWithTsx() {
+  return spawn(tsxCommand(), [GATEWAY_ENTRY], {
+    cwd: process.cwd(),
+    stdio: 'inherit',
+  });
 }
 
 function gatewayUrl() {
@@ -152,15 +169,27 @@ function cmdDev() {
   printBanner();
   log.info('Starting Arden in dev mode...');
   log.blank();
-  const proc = spawn('npx', ['tsx', 'src/gateway/index.ts'], { stdio: 'inherit' });
+  const proc = spawnGatewayWithTsx();
   proc.on('exit', (code) => process.exit(code ?? 0));
 }
 
 function cmdStart() {
   printBanner();
   log.info('Starting Arden in production mode...');
-  execSync('npm run build', { stdio: 'inherit' });
-  const proc = spawn('node', ['dist/gateway/index.js'], { stdio: 'inherit' });
+  if (!fs.existsSync(DIST_GATEWAY_ENTRY)) {
+    try {
+      execSync('npm run build', { cwd: PACKAGE_ROOT, stdio: 'inherit' });
+    } catch {
+      log.warn('Build failed or package directory is read-only. Falling back to TypeScript runtime.');
+      const fallback = spawnGatewayWithTsx();
+      fallback.on('exit', (code) => process.exit(code ?? 0));
+      return;
+    }
+  }
+
+  const proc = fs.existsSync(DIST_GATEWAY_ENTRY)
+    ? spawn('node', [DIST_GATEWAY_ENTRY], { cwd: process.cwd(), stdio: 'inherit' })
+    : spawnGatewayWithTsx();
   proc.on('exit', (code) => process.exit(code ?? 0));
 }
 
