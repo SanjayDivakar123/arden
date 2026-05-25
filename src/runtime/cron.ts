@@ -7,6 +7,7 @@ import type { Agent } from './agent.js';
 export interface CronJob {
   id: string;
   expression: string;
+  schedule: string;
   instruction: string;
   createdBy: 'user' | 'agent';
   createdAt: string;
@@ -76,7 +77,20 @@ export function toggleCron(id: string, enabled: boolean): boolean {
 
 // Convert natural language schedule to cron expression using simple patterns
 export function parseCronExpression(schedule: string): string | null {
-  const s = schedule.toLowerCase();
+  const s = schedule.toLowerCase().trim();
+
+  // "at 5pm", "at 8:30am", "at 14:00"
+  const atMatch = s.match(/^(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
+  if (atMatch) {
+    let hour = parseInt(atMatch[1] ?? '0');
+    const min = parseInt(atMatch[2] ?? '0');
+    if (atMatch[3] === 'pm' && hour !== 12) hour += 12;
+    if (atMatch[3] === 'am' && hour === 12) hour = 0;
+    if (hour >= 0 && hour < 24 && min >= 0 && min < 60) {
+      return `${min} ${hour} * * *`;
+    }
+  }
+
   const everyMinutes = s.match(/every\s+(\d+)\s*(?:m|min|mins|minute|minutes)\b/);
   if (everyMinutes) return `*/${parseInt(everyMinutes[1] ?? '1')} * * * *`;
 
@@ -92,7 +106,7 @@ export function parseCronExpression(schedule: string): string | null {
   if (s.includes('every 2 hour'))                         return '0 */2 * * *';
   if (s.includes('every 6 hour'))                         return '0 */6 * * *';
   if (s.includes('every 12 hour'))                        return '0 */12 * * *';
-  if (s.includes('every day') || s.includes('daily')) {
+  if (s.includes('every day') || s.includes('daily') || s.startsWith('at ')) {
     const match = s.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
     if (match) {
       let hour = parseInt(match[1] ?? "0");

@@ -44,8 +44,26 @@ async function createSession(): Promise<BrowserbaseSession> {
 async function getSession(sessionId?: string): Promise<BrowserbaseSession> {
   if (!sessionId) return createSession();
   const session = sessions.get(sessionId);
-  if (!session) throw new Error(`Browserbase session not found: ${sessionId}. Start with browserbase_navigate.`);
-  return session;
+  if (session) return session;
+
+  // Attempt to attach to existing session if it exists in BB but not in our memory
+  try {
+    const bb = getClient();
+    const bbSession = await bb.sessions.retrieve(sessionId);
+    if (bbSession && bbSession.status === 'RUNNING') {
+      const browser = await chromium.connectOverCDP(bbSession.connectUrl);
+      const context = browser.contexts()[0] ?? await browser.newContext();
+      const page = context.pages()[0] ?? await context.newPage();
+      const managedSession = { browser, page, sessionId: bbSession.id };
+      sessions.set(bbSession.id, managedSession);
+      logger.info('BROWSERBASE', `Attached to existing session: ${bbSession.id}`);
+      return managedSession;
+    }
+  } catch (err) {
+    logger.warn('BROWSERBASE', `Failed to attach to ${sessionId}: ${String(err)}`);
+  }
+
+  throw new Error(`Browserbase session not found or not running: ${sessionId}. Start with browserbase_navigate.`);
 }
 
 async function pageSummary(page: Page) {
@@ -184,6 +202,82 @@ export function registerBrowserbaseTools() {
     },
   });
 
-  logger.success('TOOLS', 'Browserbase tools registered: browserbase_navigate, browserbase_extract_text, browserbase_screenshot, browserbase_click, browserbase_type, browserbase_close');
+  registry.register({
+    name: 'browserbase_list_sessions',
+    description: 'List active Browserbase cloud browser sessions.',
+    parameters: { type: 'object', properties: {}, required: [] },
+    handler: async () => {
+      const bb = getClient();
+      const list = await bb.sessions.list();
+      return { success: true, sessions: list };
+    },
+  });
+
+  registry.register({
+    name: 'browserbase_scroll',
+    description: 'Scroll the page in a Browserbase cloud browser session.',
+    parameters: {
+      type: 'object',
+      properties: {
+        session_id: { type: 'string', description: 'Existing Browserbase session ID.' },
+        direction: { type: 'string', description: 'Direction to scroll: "up" or "down".', enum: ['up', 'down'] },
+        amount: { type: 'string', description: 'Optional amount to scroll in pixels. Defaults to 500.' },
+      },
+      required: ['session_id'],
+    },
+    handler: async (input) => {
+      const { session_id, direction, amount } = input as { session_id: string; direction?: string; amount?: string };
+      const session = await getSession(session_id);
+      const dist = parseInt(amount ?? '500') * (direction === 'up' ? -1 : 1);
+      await session.page.evaluate((d) => window.scrollBy(0, d), dist);
+      return { success: true, session_id, direction: direction ?? 'down', amount: dist };
+    },
+  });
+
+  registry.register({
+    name: 'browserbase_wait_for',
+    description: 'Wait for an element or a specific state in a Browserbase cloud browser session.',
+    parameters: {
+      type: 'object',
+      properties: {
+        session_id: { type: 'string', description: 'Existing Browserbase session ID.' },
+        selector: { type: 'string', description: 'Optional CSS selector to wait for.' },
+        state: { type: 'string', description: 'Optional state to wait for: "load", "domcontentloaded", "networkidle".', enum: ['load', 'domcontentloaded', 'networkidle'] },
+        timeout: { type: 'string', description: 'Timeout in milliseconds. Defaults to 30000.' },
+      },
+      required: ['session_id'],
+    },
+    handler: async (input) => {
+      const { session_id, selector, state, timeout } = input as { session_id: string; selector?: string; state?: 'load' | 'domcontentloaded' | 'networkidle'; timeout?: string };
+      const session = await getSession(session_id);
+      const t = parseInt(timeout ?? '30000');
+      if (selector) {
+        await session.page.waitForSelector(selector, { timeout: t });
+      } else if (state) {
+        await session.page.waitForLoadState(state, { timeout: t });
+      }
+      return { success: true, session_id, selector, state };
+    },
+  });
+
+  registry.register({
+    name: 'browserbase_reload',
+    description: 'Reload the current page in a Browserbase cloud browser session.',
+    parameters: {
+      type: 'object',
+      properties: {
+        session_id: { type: 'string', description: 'Existing Browserbase session ID.' },
+      },
+      required: ['session_id'],
+    },
+    handler: async (input) => {
+      const { session_id } = input as { session_id: string };
+      const session = await getSession(session_id);
+      await session.page.reload({ waitUntil: 'domcontentloaded' });
+      return { success: true, session_id, ...await pageSummary(session.page) };
+    },
+  });
+
+  logger.success('TOOLS', 'Browserbase tools registered: browserbase_navigate, browserbase_extract_text, browserbase_screenshot, browserbase_click, browserbase_type, browserbase_close, browserbase_list_sessions, browserbase_scroll, browserbase_wait_for, browserbase_reload');
 }
 

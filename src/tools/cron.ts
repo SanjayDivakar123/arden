@@ -28,6 +28,7 @@ export function registerCronTools() {
       }
       const job = addCron({
         expression,
+        schedule,
         instruction,
         createdBy: 'agent',
         enabled: true,
@@ -51,9 +52,29 @@ export function registerCronTools() {
       const jobs = loadCrons();
       if (!jobs.length) return 'No cron jobs scheduled.';
       return jobs.map((j) =>
-        `[${j.id}] ${j.enabled ? '✓' : '✗'} "${j.instruction}" — ${j.expression} (by ${j.createdBy})`
+        `[${j.id}] ${j.enabled ? '✓' : '✗'} "${j.instruction}" — ${j.schedule || j.expression} (${j.expression})`
       ).join('\n');
     },
+  });
+
+  registry.register({
+    name: 'cron_next',
+    description: 'Show the next scheduled run time for all active cron jobs.',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+    handler: async () => {
+      const jobs = loadCrons().filter(j => j.enabled);
+      if (!jobs.length) return 'No active cron jobs.';
+
+      // We don't have a full cron parser for "next run" in node-cron,
+      // but we can provide the expression and a friendly message.
+      return jobs.map(j =>
+        `[${j.id}] "${j.instruction}"\nNext run based on: ${j.expression}`
+      ).join('\n\n');
+    }
   });
 
   registry.register({

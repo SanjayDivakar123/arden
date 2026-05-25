@@ -24,7 +24,13 @@ async function matonRequest(endpoint: string, method: string, body?: object, con
   });
 
   if (!res.ok) {
-    const err = await res.text();
+    let err: string;
+    try {
+      const json = await res.json() as { error?: string; message?: string };
+      err = json.error ?? json.message ?? JSON.stringify(json);
+    } catch {
+      err = await res.text();
+    }
     throw new Error(`Maton API error ${res.status}: ${err}`);
   }
 
@@ -244,10 +250,21 @@ export function registerMatonTools() {
       };
       const normalizedPath = normalizeProxyPath(path, app);
       logger.info('MATON', `Proxy ${method} ${normalizedPath}`);
+
+      let parsedBody: object | undefined;
+      if (body) {
+        try {
+          parsedBody = JSON.parse(body);
+        } catch {
+          // If not valid JSON, treat as raw string if it's not empty
+          if (body.trim()) parsedBody = { raw: body };
+        }
+      }
+
       const data = await matonRequest(
         normalizedPath,
         method,
-        parseJsonParam(body, 'body'),
+        parsedBody,
         connection_id,
       );
       return JSON.stringify(data);

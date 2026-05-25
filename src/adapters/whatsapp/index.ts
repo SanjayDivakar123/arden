@@ -110,7 +110,18 @@ export async function startWhatsAppAdapter(agent: Agent) {
 
           const isHeavyTask = text.length > 80 || /research|find|search|analyze|write|create|build|deploy|send|schedule|book|automate|look up|get me|can you/i.test(text);
           if (isHeavyTask) {
-            const acks = ['On it.', 'Got it, working on it.', 'On it — give me a moment.', 'Sure, on it.', 'Working on that now.'];
+            const acks = [
+              'On it.',
+              'Got it, working on it.',
+              'On it — give me a moment.',
+              'Sure, on it.',
+              'Working on that now.',
+              'Understood. I am on it.',
+              'One moment, processing that for you.',
+              'Alright, let me take care of that.',
+              'I am on the case.',
+              'Working on it as we speak.'
+            ];
             const ack = acks[Math.floor(Math.random() * acks.length)];
             await sock.sendMessage(jid, { text: ack ?? "On it." });
           }
