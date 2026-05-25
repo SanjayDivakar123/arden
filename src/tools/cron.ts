@@ -1,6 +1,6 @@
 import { registry } from './registry.js';
 import { logger } from '../utils/logger.js';
-import { addCron, removeCron, loadCrons, parseCronExpression } from '../runtime/cron.js';
+import { addCron, removeCron, loadCrons, parseCronExpression, isCronRuntimeActive } from '../runtime/cron.js';
 
 export function registerCronTools() {
   registry.register({
@@ -34,7 +34,8 @@ export function registerCronTools() {
         ...(sessionId ? { sessionId } : {}),
       });
       logger.success('CRON', `Agent scheduled: ${job.id}`);
-      return `Scheduled. Job ID: ${job.id}. Will run: ${schedule} (${expression})`;
+      const activation = isCronRuntimeActive() ? 'It is active now.' : 'Restart the gateway to activate it.';
+      return `Scheduled. Job ID: ${job.id}. Will run: ${schedule} (${expression}). ${activation}`;
     },
   });
 

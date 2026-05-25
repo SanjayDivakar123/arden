@@ -7,6 +7,7 @@ dotenv.config();
 export interface ArdenConfig {
   agent: {
     name: string;
+    provider: string;
     model: string;
     fallback_model: string;
     workspace: string;
@@ -31,6 +32,7 @@ export interface ArdenConfig {
 const DEFAULTS: ArdenConfig = {
   agent: {
     name: 'Agent',
+    provider: 'anthropic',
     model: 'claude-sonnet-4-6',
     fallback_model: 'claude-haiku-4-5-20251001',
     haiku_model: 'claude-haiku-4-5-20251001',
@@ -65,6 +67,7 @@ const secrets = loadSecrets();
 
 export const env = {
   ANTHROPIC_API_KEY:  secrets.ANTHROPIC_API_KEY  ?? process.env.ANTHROPIC_API_KEY  ?? '',
+  OPENAI_API_KEY:     secrets.OPENAI_API_KEY     ?? process.env.OPENAI_API_KEY     ?? '',
   TELEGRAM_BOT_TOKEN: secrets.TELEGRAM_BOT_TOKEN ?? process.env.TELEGRAM_BOT_TOKEN ?? '',
   WHATSAPP_NUMBER:    secrets.WHATSAPP_NUMBER     ?? process.env.WHATSAPP_NUMBER     ?? '',
   ARDEN_GATEWAY_PORT: parseInt(secrets.ARDEN_GATEWAY_PORT ?? process.env.ARDEN_GATEWAY_PORT ?? '3000'),

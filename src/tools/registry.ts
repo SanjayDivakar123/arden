@@ -44,6 +44,15 @@ class ToolRegistry {
     }));
   }
 
+  toOpenAITools() {
+    return this.list().map((t) => ({
+      type: 'function',
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    }));
+  }
+
   async call(name: string, input: Record<string, unknown>, sessionId?: string): Promise<unknown> {
     const tool = this.tools.get(name);
     if (!tool) throw new Error(`Tool not found: ${name}`);

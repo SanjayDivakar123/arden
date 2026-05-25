@@ -35,6 +35,12 @@ function readConfig() {
   return JSON.parse(fs.readFileSync(p, 'utf-8'));
 }
 
+function readSecrets() {
+  const p = path.resolve('.arden-secrets.json');
+  if (!fs.existsSync(p)) return {};
+  return JSON.parse(fs.readFileSync(p, 'utf-8'));
+}
+
 function writeConfig(config: object) {
   fs.writeFileSync('arden.config.json', JSON.stringify(config, null, 2));
 }
@@ -55,6 +61,25 @@ async function fetchGateway(path: string, method = 'GET', body?: object) {
   return res.json();
 }
 
+async function reloadGatewayCrons(): Promise<boolean> {
+  try {
+    const data = await fetchGateway('/cron/reload', 'POST') as Record<string, unknown>;
+    return data.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+function askQuestion(question: string): Promise<string> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
+
 // ─── INIT ────────────────────────────────────────────────────────────────────
 
 async function cmdInit() {
@@ -66,8 +91,11 @@ async function cmdInit() {
     'arden.config.json': JSON.stringify({
       agent: {
         name: 'MyAgent',
+        provider: 'anthropic',
         model: 'claude-sonnet-4-5-20251001',
         fallback_model: 'claude-haiku-4-5-20251001',
+        haiku_model: 'claude-haiku-4-5-20251001',
+        opus_model: 'claude-opus-4-6',
         workspace: './workspace',
       },
       channels: {
@@ -78,7 +106,7 @@ async function cmdInit() {
       heartbeat: { enabled: false, interval: '30m' },
     }, null, 2),
 
-    '.env': 'ANTHROPIC_API_KEY=\nTELEGRAM_BOT_TOKEN=\nARDEN_GATEWAY_PORT=3000\nARDEN_AUTH_TOKEN=',
+    '.env': 'ANTHROPIC_API_KEY=\nOPENAI_API_KEY=\nTELEGRAM_BOT_TOKEN=\nARDEN_GATEWAY_PORT=3000\nARDEN_AUTH_TOKEN=',
 
     '.gitignore': 'node_modules/\ndist/\n.env\nworkspace/logs/\n*.db',
 
@@ -147,6 +175,111 @@ function cmdStop() {
 function cmdRestart() {
   execSync("pm2 restart arden-gateway", { stdio: "inherit" });
   log.success("Gateway restarted.");
+}
+
+// ─── ERASE ───────────────────────────────────────────────────────────────────
+
+type EraseTarget = {
+  label: string;
+  path: string;
+  required?: boolean;
+};
+
+function safeProjectPath(targetPath: string): string | null {
+  const cwd = process.cwd();
+  const full = path.resolve(targetPath);
+  const rel = path.relative(cwd, full);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return full;
+}
+
+function eraseTargets(): EraseTarget[] {
+  const config = readConfig();
+  const workspace = config?.agent?.workspace ?? './workspace';
+  return [
+    { label: 'agent config', path: 'arden.config.json', required: true },
+    { label: 'environment file', path: '.env' },
+    { label: 'secrets', path: '.arden-secrets.json', required: true },
+    { label: 'cron jobs', path: '.arden-crons.json' },
+    { label: 'WhatsApp pairing state', path: '.arden-whatsapp-auth' },
+    { label: 'deployment config', path: '.arden-deploy.json' },
+    { label: 'gateway log', path: 'gateway.log' },
+    { label: 'legacy memory', path: 'MEMORY.md' },
+    { label: 'agent workspace', path: workspace, required: true },
+  ];
+}
+
+async function cmdErase() {
+  printBanner();
+  const assumeYes = args.includes('--yes') || args.includes('-y');
+  const runOnboardAfter = args.includes('--onboard');
+  const targets = eraseTargets();
+  const removable = targets
+    .map((target) => ({ ...target, fullPath: safeProjectPath(target.path) }))
+    .filter((target) => target.fullPath && fs.existsSync(target.fullPath));
+  const unsafe = targets.filter((target) => !safeProjectPath(target.path));
+
+  log.warn('This will permanently erase the local Arden agent state.');
+  log.dim('It will stop/delete the PM2 gateway process and remove local config, memory, credentials, schedules, and channel auth.');
+  log.blank();
+
+  if (removable.length) {
+    log.info('Items to remove:');
+    for (const target of removable) {
+      console.log(`  ${C.dim}${target.label.padEnd(24)}${C.reset} ${path.relative(process.cwd(), target.fullPath!)}`);
+    }
+    log.blank();
+  } else {
+    log.warn('No local agent files were found to remove.');
+  }
+
+  if (unsafe.length) {
+    log.warn('Skipped paths outside this project for safety:');
+    for (const target of unsafe) {
+      console.log(`  ${C.dim}${target.label.padEnd(24)}${C.reset} ${target.path}`);
+    }
+    log.blank();
+  }
+
+  if (!assumeYes) {
+    if (!process.stdin.isTTY) {
+      log.error('Refusing to erase without an interactive terminal. Re-run with --yes to confirm.');
+      process.exit(1);
+    }
+    const answer = await askQuestion(`Type ${C.bold}ERASE${C.reset} to continue: `);
+    if (answer !== 'ERASE') {
+      log.warn('Erase cancelled.');
+      return;
+    }
+  }
+
+  try {
+    execSync('pm2 delete arden-gateway', { stdio: 'pipe' });
+    log.success('Stopped and removed PM2 process: arden-gateway');
+  } catch {
+    log.warn('PM2 process arden-gateway was not running.');
+  }
+
+  let removed = 0;
+  for (const target of removable) {
+    try {
+      fs.rmSync(target.fullPath!, { recursive: true, force: true });
+      log.success(`Removed ${target.label}: ${path.relative(process.cwd(), target.fullPath!)}`);
+      removed++;
+    } catch (err) {
+      log.error(`Failed to remove ${target.label}: ${String(err)}`);
+    }
+  }
+
+  log.blank();
+  log.success(`Erase complete. Removed ${removed} item(s).`);
+  log.dim('Build a new agent with: arden onboard');
+  log.blank();
+
+  if (runOnboardAfter) {
+    const m = await import('./onboard.js');
+    await m.runOnboard();
+  }
 }
 
 
@@ -403,6 +536,12 @@ async function cmdDoctor() {
   log.info('Running Arden health check...');
   log.blank();
 
+  const config = readConfig();
+  const secrets = readSecrets() as Record<string, string>;
+  const envText = fs.existsSync('.env') ? fs.readFileSync('.env', 'utf-8') : '';
+  const provider = config?.agent?.provider ?? (String(config?.agent?.model ?? '').startsWith('openai/') ? 'openai' : 'anthropic');
+  const modelKey = provider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY';
+
   const checks = [
     {
       name: 'arden.config.json',
@@ -415,9 +554,9 @@ async function cmdDoctor() {
       fix: 'Create a .env file with ANTHROPIC_API_KEY',
     },
     {
-      name: 'ANTHROPIC_API_KEY',
-      pass: !!(process.env.ANTHROPIC_API_KEY || fs.readFileSync('.env', 'utf-8').includes('ANTHROPIC_API_KEY=')),
-      fix: 'Add ANTHROPIC_API_KEY to .env',
+      name: modelKey,
+      pass: !!(process.env[modelKey] || secrets[modelKey] || envText.includes(`${modelKey}=`)),
+      fix: `Add ${modelKey} via arden onboard or .env`,
     },
     {
       name: 'workspace/SOUL.md',
@@ -488,6 +627,7 @@ function cmdHelp() {
     ['start',             'Start gateway in production mode'],
     ['stop',              'Stop the running gateway'],
     ['restart',           'Restart the gateway'],
+    ['erase',             'Erase local agent state and start fresh'],
     ['status',            'Health check + uptime'],
     ['chat',              'Talk to your agent from terminal'],
     ['logs',              'Tail live logs (--clear to wipe)'],
@@ -529,6 +669,7 @@ switch (command) {
   case 'start':    cmdStart(); break;
   case 'stop':     cmdStop(); break;
   case 'restart':  cmdRestart(); break;
+  case 'erase':    cmdErase(); break;
   case 'status':   cmdStatus(); break;
   case 'chat':     cmdChat(); break;
   case 'logs':     cmdLogs(); break;
@@ -617,30 +758,39 @@ async function cmdCron() {
 
     log.success(`Cron job created: ${job.id}`);
     log.dim(`  Schedule: ${expression}`);
-    log.dim(`  Restart gateway to activate: arden restart`);
+    if (await reloadGatewayCrons()) {
+      log.dim('  Gateway cron scheduler reloaded.');
+    } else {
+      log.dim('  Restart gateway to activate: arden restart');
+    }
     return;
   }
 
   if (sub === 'remove' && param) {
     const removed = removeCron(param);
-    if (removed) log.success(`Removed: ${param}`);
-    else log.error(`Job not found: ${param}`);
+    if (removed) {
+      log.success(`Removed: ${param}`);
+      if (await reloadGatewayCrons()) log.dim('  Gateway cron scheduler reloaded.');
+    } else {
+      log.error(`Job not found: ${param}`);
+    }
     return;
   }
 
   if (sub === 'pause' && param) {
     toggleCron(param, false);
     log.success(`Paused: ${param}`);
+    if (await reloadGatewayCrons()) log.dim('  Gateway cron scheduler reloaded.');
     return;
   }
 
   if (sub === 'resume' && param) {
     toggleCron(param, true);
     log.success(`Resumed: ${param}`);
+    if (await reloadGatewayCrons()) log.dim('  Gateway cron scheduler reloaded.');
     return;
   }
 
   log.error(`Unknown cron command: ${sub}`);
   log.dim('Commands: list, add, remove, pause, resume');
 }
-

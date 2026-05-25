@@ -23,23 +23,48 @@ export class Agent {
     return this.sessions.get(sessionId)!;
   }
 
-  private resolveModel(userMessage: string): string {
+  private providerForModel(model: string): 'anthropic' | 'openai' {
+    const configuredProvider = this.config.agent.provider?.toLowerCase();
+    if (configuredProvider === 'openai' || model.startsWith('openai/')) return 'openai';
+    return 'anthropic';
+  }
+
+  private modelMatchesProvider(model: string, provider: 'anthropic' | 'openai'): boolean {
+    if (provider === 'openai') {
+      return model.startsWith('openai/') || /^(gpt|o\d|chat-latest)/i.test(model);
+    }
+    return model.startsWith('claude');
+  }
+
+  private normalizeModel(model: string): string {
+    return model.replace(/^openai\//, '').replace(/^anthropic\//, '');
+  }
+
+  private resolveModel(userMessage: string): { provider: 'anthropic' | 'openai'; model: string } {
     const msg = userMessage.toLowerCase();
+    const defaultModel = this.config.agent.model;
+    const provider = this.providerForModel(defaultModel);
+    const smallModel = this.modelMatchesProvider(this.config.agent.haiku_model, provider)
+      ? this.config.agent.haiku_model
+      : defaultModel;
+    const largeModel = this.modelMatchesProvider(this.config.agent.opus_model, provider)
+      ? this.config.agent.opus_model
+      : defaultModel;
 
     // Haiku: simple, fast tasks
     const haikuPatterns = /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|sure|got it|confirm|cancel|remind me|what time|status|ping|check)[s!?.]*$/i;
     if (haikuPatterns.test(msg.trim()) || msg.length < 40) {
-      return this.config.agent.haiku_model;
+      return { provider, model: this.normalizeModel(smallModel) };
     }
 
     // Opus: complex, high-stakes tasks
     const opusPatterns = /analyze|strategy|legal|tax|regulatory|contract|audit|deep.?dive|comprehensive|write.*report|draft.*proposal|investment|financial.?model|due.?diligence/i;
     if (opusPatterns.test(msg)) {
-      return this.config.agent.opus_model;
+      return { provider, model: this.normalizeModel(largeModel) };
     }
 
     // Sonnet: default for everything else
-    return this.config.agent.model;
+    return { provider, model: this.normalizeModel(defaultModel) };
   }
 
   async handle(sessionId: string, userMessage: string): Promise<string> {
@@ -51,11 +76,12 @@ export class Agent {
 
     session.push({ role: 'user', content: userMessage });
 
-    const tools = registry.toAnthropicTools();
-    const model = this.resolveModel(userMessage);
-    logger.info('AGENT', `Model selected: ${model}`);
+    const { provider, model } = this.resolveModel(userMessage);
+    const tools = provider === 'openai' ? registry.toOpenAITools() : registry.toAnthropicTools();
+    logger.info('AGENT', `Model selected: ${provider}:${model}`);
 
     const result = await runLoop({
+      provider,
       model,
       systemPrompt,
       messages: session,
@@ -85,8 +111,10 @@ export class Agent {
   async compactSession(sessionId: string): Promise<string> {
     const session = this.getSession(sessionId);
     if (session.length === 0) return 'No conversation to compact.';
+    const provider = this.providerForModel(this.config.agent.model);
     const summary = await runLoop({
-      model: this.config.agent.model,
+      provider,
+      model: this.normalizeModel(this.config.agent.model),
       systemPrompt: 'Summarize this conversation in a concise paragraph capturing the key points, decisions, and context.',
       messages: session,
       maxIterations: 1,

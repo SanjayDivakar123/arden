@@ -2,10 +2,13 @@ import { execSync } from "child_process";
 import * as p from '@clack/prompts';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { printBanner } from '../utils/banner.js';
 
 const CONFIG_PATH = path.resolve('arden.config.json');
 const SECRETS_PATH = path.resolve('.arden-secrets.json');
+const CLI_DIR = path.dirname(fileURLToPath(import.meta.url));
+const PACKAGE_ROOT = path.resolve(CLI_DIR, '../..');
 
 function saveSecrets(secrets: Record<string, string>) {
   fs.writeFileSync(SECRETS_PATH, JSON.stringify(secrets, null, 2), { mode: 0o600 });
@@ -18,6 +21,36 @@ function loadSecrets(): Record<string, string> {
 
 function saveConfig(config: object) {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function startGatewayProcess(): 'started' | 'restarted' {
+  const gatewayEntry = path.join(PACKAGE_ROOT, 'src/gateway/index.ts');
+  const localTsx = path.join(PACKAGE_ROOT, 'node_modules/.bin/tsx');
+  const tsxInterpreter = fs.existsSync(localTsx) ? localTsx : 'tsx';
+
+  try {
+    execSync('pm2 describe arden-gateway', { stdio: 'ignore' });
+    execSync('pm2 restart arden-gateway --update-env', { stdio: 'pipe' });
+    return 'restarted';
+  } catch {
+    execSync(
+      [
+        'pm2 start',
+        shellQuote(gatewayEntry),
+        '--name arden-gateway',
+        '--interpreter',
+        shellQuote(tsxInterpreter),
+        '--cwd',
+        shellQuote(process.cwd()),
+      ].join(' '),
+      { stdio: 'pipe' }
+    );
+    return 'started';
+  }
 }
 
 function ensureWorkspace(workspace: string, agentName: string) {
@@ -39,6 +72,42 @@ function ensureWorkspace(workspace: string, agentName: string) {
 
 // ─── MODEL PROVIDERS ─────────────────────────────────────────────────────────
 
+const CUSTOM_OPENAI_MODEL = '__custom_openai_model__';
+
+const OPENAI_MODELS = [
+  { value: 'gpt-5.5',             label: 'GPT-5.5',             hint: 'latest frontier' },
+  { value: 'gpt-5.5-pro',         label: 'GPT-5.5 Pro',         hint: 'highest capability' },
+  { value: 'gpt-5.4',             label: 'GPT-5.4',             hint: 'affordable frontier' },
+  { value: 'gpt-5.4-pro',         label: 'GPT-5.4 Pro',         hint: 'higher precision' },
+  { value: 'gpt-5.4-mini',        label: 'GPT-5.4 Mini',        hint: 'strong small model' },
+  { value: 'gpt-5.4-nano',        label: 'GPT-5.4 Nano',        hint: 'cheapest GPT-5.4 class' },
+  { value: 'gpt-5.3-codex',       label: 'GPT-5.3 Codex',       hint: 'coding optimized' },
+  { value: 'gpt-5.2',             label: 'GPT-5.2',             hint: 'previous frontier' },
+  { value: 'gpt-5.2-pro',         label: 'GPT-5.2 Pro',         hint: 'previous pro' },
+  { value: 'gpt-5.2-codex',       label: 'GPT-5.2 Codex',       hint: 'coding optimized' },
+  { value: 'gpt-5.1',             label: 'GPT-5.1',             hint: 'agentic tasks' },
+  { value: 'gpt-5.1-codex',       label: 'GPT-5.1 Codex',       hint: 'coding optimized' },
+  { value: 'gpt-5.1-codex-max',   label: 'GPT-5.1 Codex Max',   hint: 'long running coding' },
+  { value: 'gpt-5.1-codex-mini',  label: 'GPT-5.1 Codex Mini',  hint: 'small coding model' },
+  { value: 'gpt-5',               label: 'GPT-5',               hint: 'reasoning' },
+  { value: 'gpt-5-pro',           label: 'GPT-5 Pro',           hint: 'more compute' },
+  { value: 'gpt-5-mini',          label: 'GPT-5 Mini',          hint: 'cost sensitive' },
+  { value: 'gpt-5-nano',          label: 'GPT-5 Nano',          hint: 'fastest, cheapest GPT-5' },
+  { value: 'o3-pro',              label: 'o3 Pro',              hint: 'extra compute reasoning' },
+  { value: 'o3',                  label: 'o3',                  hint: 'reasoning' },
+  { value: 'o4-mini',             label: 'o4 Mini',             hint: 'legacy small reasoning' },
+  { value: 'o3-mini',             label: 'o3 Mini',             hint: 'legacy small reasoning' },
+  { value: 'gpt-4.1',             label: 'GPT-4.1',             hint: 'non-reasoning' },
+  { value: 'gpt-4.1-mini',        label: 'GPT-4.1 Mini',        hint: 'smaller, faster' },
+  { value: 'gpt-4.1-nano',        label: 'GPT-4.1 Nano',        hint: 'legacy nano' },
+  { value: 'gpt-4o',              label: 'GPT-4o',              hint: 'legacy multimodal' },
+  { value: 'gpt-4o-mini',         label: 'GPT-4o Mini',         hint: 'legacy small' },
+  { value: 'gpt-4-turbo',         label: 'GPT-4 Turbo',         hint: 'legacy' },
+  { value: 'gpt-4',               label: 'GPT-4',               hint: 'legacy' },
+  { value: 'gpt-3.5-turbo',       label: 'GPT-3.5 Turbo',       hint: 'legacy' },
+  { value: CUSTOM_OPENAI_MODEL,   label: 'Custom OpenAI model', hint: 'enter any model ID' },
+];
+
 const MODEL_PROVIDERS = [
   {
     value: 'anthropic',
@@ -58,10 +127,7 @@ const MODEL_PROVIDERS = [
     hint: '',
     keyName: 'OPENAI_API_KEY',
     keyLabel: 'OpenAI API key (platform.openai.com)',
-    models: [
-      { value: 'openai/gpt-5.5',      label: 'GPT-5.5',      hint: 'most capable' },
-      { value: 'openai/gpt-5.4-mini', label: 'GPT-5.4 Mini', hint: 'faster, cheaper' },
-    ],
+    models: OPENAI_MODELS,
   },
   {
     value: 'google',
@@ -86,31 +152,56 @@ const MODEL_PROVIDERS = [
   },
 ];
 
+async function promptModelChoice(provider: typeof MODEL_PROVIDERS[number]): Promise<string> {
+  const modelChoice = await p.select({
+    message: `${provider.label} model`,
+    options: provider.models,
+  });
+  if (p.isCancel(modelChoice)) { p.cancel('Cancelled.'); process.exit(0); }
+
+  if (modelChoice === CUSTOM_OPENAI_MODEL) {
+    const customModel = await p.text({
+      message: 'OpenAI model ID',
+      placeholder: 'gpt-5.4-nano',
+      validate: (v) => (!(v ?? "").trim() ? 'Model ID is required.' : undefined),
+    });
+    if (p.isCancel(customModel)) { p.cancel('Cancelled.'); process.exit(0); }
+    return (customModel as string).trim();
+  }
+
+  return modelChoice as string;
+}
+
+function routingModels(provider: string, model: string) {
+  if (provider === 'openai') {
+    return {
+      fallback_model: 'gpt-5.4-nano',
+      haiku_model: model.includes('nano') ? model : 'gpt-5.4-nano',
+      opus_model: model.includes('pro') || model === 'gpt-5.5' ? model : 'gpt-5.5',
+    };
+  }
+
+  return {
+    fallback_model: 'claude-haiku-4-5',
+    haiku_model: 'claude-haiku-4-5',
+    opus_model: 'claude-opus-4-6',
+  };
+}
+
 // ─── CHANNELS ────────────────────────────────────────────────────────────────
 
+type ChannelsConfig = Record<string, { enabled: boolean; allowlist: string[] }>;
+
 const ALL_CHANNELS = [
-  { value: 'telegram',        label: 'Telegram',         hint: 'Bot API via grammY',              keyName: 'TELEGRAM_BOT_TOKEN',    keyLabel: 'Telegram bot token (from @BotFather)' },
-  { value: 'whatsapp',        label: 'WhatsApp',         hint: 'Baileys, QR pairing required',    keyName: '',                       keyLabel: '' },
-  { value: 'discord',         label: 'Discord',          hint: 'Bot API + Gateway',               keyName: 'DISCORD_BOT_TOKEN',     keyLabel: 'Discord bot token (discord.com/developers)' },
-  { value: 'slack',           label: 'Slack',            hint: 'Bolt SDK, workspace apps',        keyName: 'SLACK_BOT_TOKEN',       keyLabel: 'Slack bot token (api.slack.com)' },
-  { value: 'signal',          label: 'Signal',           hint: 'signal-cli, privacy-focused',     keyName: 'SIGNAL_NUMBER',         keyLabel: 'Your Signal phone number (+1...)' },
-  { value: 'imessage',        label: 'iMessage',         hint: 'macOS only, imsg bridge',         keyName: '',                       keyLabel: '' },
-  { value: 'msteams',         label: 'Microsoft Teams',  hint: 'Bot Framework, enterprise',       keyName: 'MSTEAMS_APP_ID',        keyLabel: 'Teams App ID (Azure portal)' },
-  { value: 'googlechat',      label: 'Google Chat',      hint: 'HTTP webhook app',                keyName: 'GOOGLECHAT_TOKEN',      keyLabel: 'Google Chat webhook token' },
-  { value: 'feishu',          label: 'Feishu / Lark',    hint: 'WebSocket bot',                   keyName: 'FEISHU_APP_ID',         keyLabel: 'Feishu App ID' },
-  { value: 'irc',             label: 'IRC',              hint: 'Classic IRC servers',             keyName: 'IRC_SERVER',            keyLabel: 'IRC server (e.g. irc.libera.chat)' },
-  { value: 'matrix',          label: 'Matrix',           hint: 'Matrix protocol',                 keyName: 'MATRIX_TOKEN',          keyLabel: 'Matrix access token' },
-  { value: 'mattermost',      label: 'Mattermost',       hint: 'Bot API + WebSocket',             keyName: 'MATTERMOST_TOKEN',      keyLabel: 'Mattermost bot token' },
-  { value: 'webchat',         label: 'WebChat',          hint: 'Built-in WebSocket UI',           keyName: '',                       keyLabel: '' },
-  { value: 'nostr',           label: 'Nostr',            hint: 'Decentralized DMs, NIP-04',       keyName: 'NOSTR_PRIVATE_KEY',     keyLabel: 'Nostr private key (hex)' },
-  { value: 'twitch',          label: 'Twitch',           hint: 'Twitch chat via IRC',             keyName: 'TWITCH_TOKEN',          keyLabel: 'Twitch OAuth token' },
-  { value: 'line',            label: 'LINE',             hint: 'LINE Messaging API',              keyName: 'LINE_CHANNEL_TOKEN',    keyLabel: 'LINE channel access token' },
-  { value: 'synology',        label: 'Synology Chat',    hint: 'Synology NAS webhooks',           keyName: 'SYNOLOGY_TOKEN',        keyLabel: 'Synology incoming webhook token' },
-  { value: 'nextcloud',       label: 'Nextcloud Talk',   hint: 'Self-hosted Nextcloud',           keyName: 'NEXTCLOUD_TOKEN',       keyLabel: 'Nextcloud app token' },
-  { value: 'zalo',            label: 'Zalo',             hint: "Vietnam's popular messenger",     keyName: 'ZALO_APP_ID',           keyLabel: 'Zalo App ID' },
-  { value: 'wechat',          label: 'WeChat',           hint: 'QR login, private chats only',   keyName: '',                       keyLabel: '' },
-  { value: 'voice',           label: 'Voice Call',       hint: 'Plivo or Twilio telephony',       keyName: 'TWILIO_ACCOUNT_SID',    keyLabel: 'Twilio Account SID' },
+  { value: 'whatsapp', label: 'WhatsApp', hint: 'Baileys, QR pairing required', keyName: '', keyLabel: '' },
+  { value: 'telegram', label: 'Telegram', hint: 'Bot API via grammY', keyName: 'TELEGRAM_BOT_TOKEN', keyLabel: 'Telegram bot token (from @BotFather)' },
 ];
+
+function defaultChannelsConfig(): ChannelsConfig {
+  return Object.fromEntries(
+    ALL_CHANNELS.map((c) => [c.value, { enabled: false, allowlist: [] }])
+  );
+}
 
 // ─── MAIN EXPORT ─────────────────────────────────────────────────────────────
 
@@ -166,11 +257,7 @@ async function runEasySetup() {
 
   const provider = MODEL_PROVIDERS.find((p2) => p2.value === providerChoice)!;
 
-  const modelChoice = await p.select({
-    message: `${provider.label} model`,
-    options: provider.models,
-  });
-  if (p.isCancel(modelChoice)) { p.cancel('Cancelled.'); process.exit(0); }
+  const modelChoice = await promptModelChoice(provider);
 
   const apiKey = await p.password({
     message: provider.keyLabel,
@@ -189,7 +276,7 @@ async function runEasySetup() {
   if (p.isCancel(channelChoice)) { p.cancel('Cancelled.'); process.exit(0); }
 
   const secrets: Record<string, string> = { [provider.keyName]: apiKey as string };
-  const channelsConfig: Record<string, { enabled: boolean; allowlist: string[] }> = {};
+  const channelsConfig = defaultChannelsConfig();
 
   if (channelChoice !== 'none') {
     const ch = ALL_CHANNELS.find((c) => c.value === channelChoice)!;
@@ -213,17 +300,10 @@ async function runEasySetup() {
       enabled: true,
       allowlist: allowlistInput ? [allowlistInput as string] : [],
     };
-
-    // Disable all others
-    for (const c of ALL_CHANNELS) {
-      if (c.value !== channelChoice) {
-        channelsConfig[c.value] = { enabled: false, allowlist: [] };
-      }
-    }
   }
 
   await promptToolKeys(secrets);
-  await finalize(agentName as string, modelChoice as string, channelsConfig, secrets);
+  await finalize(agentName as string, providerChoice as string, modelChoice, channelsConfig, secrets);
 }
 
 // ─── MANUAL SETUP ────────────────────────────────────────────────────────────
@@ -248,11 +328,7 @@ async function runManualSetup() {
 
   const provider = MODEL_PROVIDERS.find((p2) => p2.value === providerChoice)!;
 
-  const modelChoice = await p.select({
-    message: `${provider.label} model`,
-    options: provider.models,
-  });
-  if (p.isCancel(modelChoice)) { p.cancel('Cancelled.'); process.exit(0); }
+  const modelChoice = await promptModelChoice(provider);
 
   const apiKey = await p.password({
     message: provider.keyLabel,
@@ -283,7 +359,7 @@ async function runManualSetup() {
   if (p.isCancel(selectedChannels)) { p.cancel('Cancelled.'); process.exit(0); }
 
   const secrets: Record<string, string> = { [provider.keyName]: apiKey as string };
-  const channelsConfig: Record<string, { enabled: boolean; allowlist: string[] }> = {};
+  const channelsConfig = defaultChannelsConfig();
 
   for (const chVal of selectedChannels as string[]) {
     const ch = ALL_CHANNELS.find((c) => c.value === chVal)!;
@@ -306,13 +382,6 @@ async function runManualSetup() {
       enabled: true,
       allowlist: allowlistInput ? [allowlistInput as string] : [],
     };
-  }
-
-  // Disable unselected channels
-  for (const c of ALL_CHANNELS) {
-    if (!(selectedChannels as string[]).includes(c.value)) {
-      channelsConfig[c.value] = { enabled: false, allowlist: [] };
-    }
   }
 
   // ── Heartbeat ───────────────────────────────────────────────────────────────
@@ -340,7 +409,8 @@ async function runManualSetup() {
   await promptToolKeys(secrets);
   await finalize(
     agentName as string,
-    modelChoice as string,
+    providerChoice as string,
+    modelChoice,
     channelsConfig,
     secrets,
     workspace as string,
@@ -354,6 +424,7 @@ async function runManualSetup() {
 
 async function finalize(
   agentName: string,
+  provider: string,
   model: string,
   channels: Record<string, { enabled: boolean; allowlist: string[] }>,
   secrets: Record<string, string>,
@@ -364,12 +435,14 @@ async function finalize(
 ) {
   const s = p.spinner();
   s.start('Saving config...');
+  const routing = routingModels(provider, model);
 
   const config = {
     agent: {
       name: agentName,
+      provider,
       model,
-      fallback_model: 'claude-haiku-4-5',
+      ...routing,
       workspace,
     },
     channels,
@@ -398,8 +471,16 @@ async function finalize(
   p.log.success(`Agent "${agentName}" is ready.`);
   p.log.info('API keys stored in .arden-secrets.json — never committed to git.');
   p.log.step('Next: edit workspace/SOUL.md to define your agent\'s identity.');
-  execSync("pm2 start src/gateway/index.ts --name arden-gateway --interpreter /Users/sanjaydivakar/.nvm/versions/node/v24.15.0/bin/tsx 2>/dev/null || pm2 restart arden-gateway", { stdio: "pipe" });
-  p.outro("Your agent is live. Chat with it on your connected channel, or run: arden chat\n\n  💡 To shape your agent's personality, just tell it who it is — it will remember.");
+  try {
+    const gatewayState = startGatewayProcess();
+    p.log.success(`Gateway ${gatewayState}.`);
+    p.outro("Your agent is live. Chat with it on your connected channel, or run: arden chat\n\n  💡 To shape your agent's personality, just tell it who it is — it will remember.");
+  } catch (err) {
+    p.log.warn('Config saved, but the gateway did not start automatically.');
+    p.log.info('Run: arden dev');
+    p.log.error(String(err));
+    p.outro("Your agent is configured.");
+  }
 }
 
 export async function promptToolKeys(secrets: Record<string, string>): Promise<void> {

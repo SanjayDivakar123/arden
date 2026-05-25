@@ -143,11 +143,26 @@ registerBrowserbaseTools();
 registerMatonTools();
 
 import { registerCronTools } from '../tools/cron.js';
-import { startCronJobs } from '../runtime/cron.js';
+import { loadCrons, startCronJobs } from '../runtime/cron.js';
 registerCronTools();
-getNotifyFn().then((notifyFn) => {
+
+async function reloadCronJobs() {
+  const notifyFn = await getNotifyFn();
   startCronJobs(agent, notifyFn);
+  return loadCrons().filter((j) => j.enabled).length;
+}
+
+app.post('/cron/reload', requireAuth, async (_req, res) => {
+  try {
+    const active = await reloadCronJobs();
+    res.json({ ok: true, active });
+  } catch (err) {
+    logger.error('CRON', `Reload failed: ${String(err)}`);
+    res.status(500).json({ error: 'Cron reload failed' });
+  }
 });
+
+reloadCronJobs();
 
 import { registerShellTools } from '../tools/shell.js';
 registerShellTools();

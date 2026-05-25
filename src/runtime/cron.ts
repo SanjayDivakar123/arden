@@ -16,6 +16,10 @@ export interface CronJob {
 
 const CRON_PATH = path.resolve('.arden-crons.json');
 const activeTasks = new Map<string, cron.ScheduledTask>();
+type NotifyFn = (msg: string) => Promise<void>;
+
+let runtimeAgent: Agent | null = null;
+let runtimeNotifyFn: NotifyFn | null = null;
 
 export function loadCrons(): CronJob[] {
   if (!fs.existsSync(CRON_PATH)) return [];
@@ -39,6 +43,9 @@ export function addCron(job: Omit<CronJob, 'id' | 'createdAt'>): CronJob {
   };
   jobs.push(newJob);
   saveCrons(jobs);
+  if (newJob.enabled && runtimeAgent && runtimeNotifyFn) {
+    scheduleCronJob(newJob, runtimeAgent, runtimeNotifyFn);
+  }
   return newJob;
 }
 
@@ -59,13 +66,22 @@ export function toggleCron(id: string, enabled: boolean): boolean {
   job.enabled = enabled;
   saveCrons(jobs);
   const task = activeTasks.get(id);
-  if (task) { enabled ? task.start() : task.stop(); }
+  if (task) {
+    enabled ? task.start() : task.stop();
+  } else if (enabled && runtimeAgent && runtimeNotifyFn) {
+    scheduleCronJob(job, runtimeAgent, runtimeNotifyFn);
+  }
   return true;
 }
 
 // Convert natural language schedule to cron expression using simple patterns
 export function parseCronExpression(schedule: string): string | null {
   const s = schedule.toLowerCase();
+  const everyMinutes = s.match(/every\s+(\d+)\s*(?:m|min|mins|minute|minutes)\b/);
+  if (everyMinutes) return `*/${parseInt(everyMinutes[1] ?? '1')} * * * *`;
+
+  const everyHours = s.match(/every\s+(\d+)\s*(?:h|hr|hrs|hour|hours)\b/);
+  if (everyHours) return `0 */${parseInt(everyHours[1] ?? '1')} * * *`;
 
   if (s.includes('every minute'))                          return '* * * * *';
   if (s.includes('every 5 min'))                          return '*/5 * * * *';
@@ -108,44 +124,68 @@ export function parseCronExpression(schedule: string): string | null {
   return null;
 }
 
-export function startCronJobs(agent: Agent, notifyFn: (msg: string) => Promise<void>) {
+export function isCronRuntimeActive(): boolean {
+  return !!runtimeAgent && !!runtimeNotifyFn;
+}
+
+async function runCronJob(job: CronJob, agent: Agent, notifyFn: NotifyFn) {
+  logger.info('CRON', `Running job ${job.id}: ${job.instruction.substring(0, 60)}`);
+  try {
+    const sessionId = job.sessionId ?? `cron:${job.id}`;
+    const reply = await agent.handle(sessionId, job.instruction);
+    if (!reply || reply.trim() === 'HEARTBEAT_OK') return;
+
+    if (job.sessionId && job.sessionId.startsWith('whatsapp:')) {
+      const recipient = job.sessionId.replace('whatsapp:', '');
+      try {
+        const { startWhatsAppNotify } = await import('../adapters/whatsapp/index.js');
+        await startWhatsAppNotify(recipient, reply);
+        return;
+      } catch (err) {
+        logger.error('CRON', `WhatsApp notify failed: ${String(err)}`);
+      }
+    }
+
+    await notifyFn(reply);
+  } catch (err) {
+    logger.error('CRON', `Job ${job.id} failed: ${String(err)}`);
+  }
+}
+
+export function scheduleCronJob(job: CronJob, agent: Agent, notifyFn: NotifyFn): boolean {
+  if (!job.enabled) return false;
+  if (!cron.validate(job.expression)) {
+    logger.warn('CRON', `Invalid expression for job ${job.id}: ${job.expression}`);
+    return false;
+  }
+
+  const existing = activeTasks.get(job.id);
+  if (existing) existing.stop();
+
+  const task = cron.schedule(job.expression, async () => {
+    await runCronJob(job, agent, notifyFn);
+  });
+
+  activeTasks.set(job.id, task);
+  logger.success('CRON', `Scheduled: "${job.instruction.substring(0, 50)}" (${job.expression})`);
+  return true;
+}
+
+export function startCronJobs(agent: Agent, notifyFn: NotifyFn) {
+  runtimeAgent = agent;
+  runtimeNotifyFn = notifyFn;
+
+  for (const task of activeTasks.values()) {
+    task.stop();
+  }
+  activeTasks.clear();
+
   const jobs = loadCrons();
   let started = 0;
 
   for (const job of jobs) {
     if (!job.enabled) continue;
-    if (!cron.validate(job.expression)) {
-      logger.warn('CRON', `Invalid expression for job ${job.id}: ${job.expression}`);
-      continue;
-    }
-
-    const task = cron.schedule(job.expression, async () => {
-      logger.info('CRON', `Running job ${job.id}: ${job.instruction.substring(0, 60)}`);
-      try {
-        const sessionId = job.sessionId ?? `cron:${job.id}`;
-        const reply = await agent.handle(sessionId, job.instruction);
-        if (reply && reply.trim() !== 'HEARTBEAT_OK') {
-          // If sessionId is a whatsapp session, notify via WhatsApp directly
-          if (job.sessionId && job.sessionId.startsWith('whatsapp:')) {
-            const number = job.sessionId.replace('whatsapp:', '').replace('@s.whatsapp.net', '').replace('@lid', '');
-            try {
-              const { startWhatsAppNotify } = await import('../adapters/whatsapp/index.js');
-              await startWhatsAppNotify(number, reply);
-            } catch {
-              await notifyFn(reply);
-            }
-          } else {
-            await notifyFn(reply);
-          }
-        }
-      } catch (err) {
-        logger.error('CRON', `Job ${job.id} failed: ${String(err)}`);
-      }
-    });
-
-    activeTasks.set(job.id, task);
-    started++;
-    logger.success('CRON', `Scheduled: "${job.instruction.substring(0, 50)}" (${job.expression})`);
+    if (scheduleCronJob(job, agent, notifyFn)) started++;
   }
 
   logger.info('CRON', `${started} job(s) active`);

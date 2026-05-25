@@ -15,6 +15,13 @@ arden onboard   # configure your agent
 arden deploy    # deploy to your VPS
 ```
 
+To remove the local agent and start over:
+
+```bash
+arden erase     # delete local agent state, credentials, memory, auth, and schedules
+arden onboard   # build a new agent
+```
+
 ## Features
 
 ### 🤖 Core Autonomous Actions
@@ -45,7 +52,7 @@ arden deploy    # deploy to your VPS
 ## Requirements
 
 - Node.js 22+
-- Anthropic API key ([get one here](https://console.anthropic.com))
+- Anthropic or OpenAI API key
 - VPS for deployment (Ubuntu 22+ recommended)
 
 ## Configuration
@@ -61,6 +68,7 @@ After `arden onboard`, your agent is configured via:
 
 ```env
 ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
 TELEGRAM_BOT_TOKEN=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
