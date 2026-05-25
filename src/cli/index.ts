@@ -906,6 +906,7 @@ async function cmdCron() {
 
     const job = addCron({
       expression,
+      schedule: instruction,
       instruction,
       createdBy: 'user',
       enabled: true,

@@ -25,7 +25,12 @@ let runtimeNotifyFn: NotifyFn | null = null;
 export function loadCrons(): CronJob[] {
   if (!fs.existsSync(CRON_PATH)) return [];
   try {
-    return JSON.parse(fs.readFileSync(CRON_PATH, 'utf-8'));
+    const jobs = JSON.parse(fs.readFileSync(CRON_PATH, 'utf-8')) as CronJob[];
+    // Backfill schedule if missing for backwards compatibility
+    return jobs.map(j => ({
+      ...j,
+      schedule: j.schedule ?? j.expression
+    }));
   } catch {
     return [];
   }
