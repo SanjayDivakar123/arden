@@ -118,22 +118,28 @@ import { startHeartbeat } from '../runtime/heartbeat.js';
 async function getNotifyFn() {
   const cfg = loadConfig();
   return async (msg: string) => {
+    const promises = [];
+
     // Send via Telegram
     if (cfg.channels.telegram?.enabled) {
       const allowlist = cfg.channels.telegram.allowlist;
       if (allowlist.length > 0) {
-        try {
-          const { Bot } = await import('grammy');
-          const { env: e } = await import('../config/loader.js');
-          const bot = new Bot(e.TELEGRAM_BOT_TOKEN);
-          for (const userId of allowlist) {
-            await bot.api.sendMessage(userId, msg);
+        promises.push((async () => {
+          try {
+            const { Bot } = await import('grammy');
+            const { env: e } = await import('../config/loader.js');
+            if (!e.TELEGRAM_BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN missing');
+            const bot = new Bot(e.TELEGRAM_BOT_TOKEN);
+            for (const userId of allowlist) {
+              await bot.api.sendMessage(userId, msg);
+            }
+          } catch (err) {
+            logger.error('NOTIFY', 'Telegram notify failed: ' + String(err));
           }
-        } catch (err) {
-          logger.error('NOTIFY', 'Telegram notify failed: ' + String(err));
-        }
+        })());
       }
     }
+
     // Send via WhatsApp
     if (cfg.channels.whatsapp?.enabled) {
       const recipients = Array.from(new Set([
@@ -141,20 +147,23 @@ async function getNotifyFn() {
         env.WHATSAPP_NUMBER,
       ].filter(Boolean)));
 
-      if (recipients.length === 0) {
-        logger.warn('NOTIFY', 'WhatsApp notification skipped: no outbound recipient configured. Add a number to channels.whatsapp.allowlist or WHATSAPP_NUMBER.');
-        return;
-      }
-
-      try {
-        const { startWhatsAppNotify } = await import('../adapters/whatsapp/index.js');
-        for (const number of recipients) {
-          await startWhatsAppNotify(number, msg);
-        }
-      } catch (err) {
-        logger.error('NOTIFY', 'WhatsApp notify failed: ' + String(err));
+      if (recipients.length > 0) {
+        promises.push((async () => {
+          try {
+            const { startWhatsAppNotify } = await import('../adapters/whatsapp/index.js');
+            for (const number of recipients) {
+              await startWhatsAppNotify(number, msg);
+            }
+          } catch (err) {
+            logger.error('NOTIFY', 'WhatsApp notify failed: ' + String(err));
+          }
+        })());
+      } else {
+        logger.warn('NOTIFY', 'WhatsApp notification skipped: no outbound recipient configured.');
       }
     }
+
+    await Promise.allSettled(promises);
   };
 }
 

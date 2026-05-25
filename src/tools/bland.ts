@@ -50,17 +50,22 @@ export const blandTools: ArdenTool[] = [
         max_duration: { type: 'string', description: 'Max call duration in minutes (default 10)' },
         first_sentence: { type: 'string', description: 'First thing the AI says when call connects' },
         wait_for_greeting: { type: 'string', description: 'Set to "true" to wait for recipient to speak first' },
+        language: { type: 'string', description: 'Language of the call (default "en")' },
+        model: { type: 'string', description: 'Model to use: "base" or "enhanced" (default "enhanced")' },
+        record: { type: 'string', description: 'Whether to record the call (default "true")', enum: ['true', 'false'] },
       },
       required: ['phone_number', 'task'],
     },
     handler: async (input) => {
-      const { phone_number, task, voice, max_duration, first_sentence, wait_for_greeting } = input as Record<string, string>;
+      const { phone_number, task, voice, max_duration, first_sentence, wait_for_greeting, language, model, record } = input as Record<string, string>;
       const body: Record<string, unknown> = {
         phone_number,
         task,
-        model: 'enhanced',
+        model: model ?? 'enhanced',
         max_duration: parseInt(max_duration ?? '10'),
+        record: record !== 'false',
       };
+      if (language) body.language = language;
       const from = getFromNumber();
       if (from) body.from = from;
       if (voice) body.voice = voice;
