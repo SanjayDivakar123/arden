@@ -311,9 +311,10 @@ async function cmdStart() {
 
 function cmdStop() {
   try {
-    execSync("pm2 stop arden-gateway", { stdio: "inherit" });
+    execSync("pm2 delete arden-gateway", { stdio: "inherit" });
+    log.success("Gateway stopped and removed from PM2.");
   } catch {
-    log.warn("Gateway not running.");
+    log.warn("Gateway not running or already stopped.");
   }
 }
 
@@ -594,6 +595,42 @@ function cmdChannels() {
     return;
   }
 
+  if (sub === 'login' && param) {
+    const channel = param.toLowerCase();
+    if (channel === 'whatsapp') {
+      log.info('WhatsApp login: starting gateway to show QR code.');
+      cmdDev(); // This will show logs in foreground
+      return;
+    }
+    if (channel === 'telegram') {
+      log.info('Telegram login: ensure TELEGRAM_BOT_TOKEN is in your .env file.');
+      log.dim('Run: arden config show to check current config.');
+      return;
+    }
+    log.error(`Unsupported channel for login: ${param}`);
+    return;
+  }
+
+  if (sub === 'logout' && param) {
+    const channel = param.toLowerCase();
+    if (channel === 'whatsapp') {
+      const authDir = path.resolve('.arden-whatsapp-auth');
+      if (fs.existsSync(authDir)) {
+        fs.rmSync(authDir, { recursive: true, force: true });
+        log.success('WhatsApp logged out (auth state cleared).');
+      } else {
+        log.warn('No WhatsApp auth state found.');
+      }
+      return;
+    }
+    if (channel === 'telegram') {
+      log.info('Telegram logout: disable the channel in arden.config.json.');
+      return;
+    }
+    log.error(`Unsupported channel for logout: ${param}`);
+    return;
+  }
+
   if (sub === 'test' && param) {
     log.info(`Testing channel: ${param}`);
     log.warn('Channel test coming in v0.2.');
@@ -778,8 +815,8 @@ function cmdHelp() {
   console.log(`${C.bold}Usage:${C.reset} arden <command>\n`);
   const commands = [
     ['init',              'Scaffold a new agent project'],
-    ['dev',               'Start gateway in dev mode in background'],
-    ['start',             'Start gateway in production mode in background'],
+    ['dev',               'Start gateway in dev mode (foreground)'],
+    ['start',             'Start gateway in production mode (background)'],
     ['stop',              'Stop the running gateway'],
     ['restart',           'Restart the gateway'],
     ['erase',             'Erase local agent state and start fresh'],

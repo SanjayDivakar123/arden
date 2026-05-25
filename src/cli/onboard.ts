@@ -481,10 +481,10 @@ async function finalize(
     p.log.success(`Gateway ${gatewayState}.`);
 
     if (channels.whatsapp?.enabled) {
-      p.log.info('WhatsApp is enabled. Tailing logs for QR code...');
-      p.log.info('Press Ctrl+C to stop tailing once you have scanned the QR.');
+      p.log.info('WhatsApp is enabled. To pair, scan the QR code that will appear in the logs.');
+      p.log.step('Showing logs now. Press Ctrl+C to stop tailing logs after you have successfully scanned the QR.');
       try {
-        execSync('pm2 logs arden-gateway --lines 20', { stdio: 'inherit' });
+        execSync('pm2 logs arden-gateway --lines 50', { stdio: 'inherit' });
       } catch {
         // User probably hit Ctrl+C
       }
