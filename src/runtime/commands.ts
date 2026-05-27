@@ -2,7 +2,27 @@ import fs from 'fs';
 import path from 'path';
 import { loadCrons } from './cron.js';
 import type { Agent } from './agent.js';
-import { setSecret } from '../utils/secrets.js';
+import { getSecret, setSecret } from '../utils/secrets.js';
+import { registry } from '../tools/registry.js';
+
+function formatMatonConnectionResult(result: unknown): string {
+  const parsed = typeof result === 'string'
+    ? JSON.parse(result) as { message?: string; url?: string; connect_url?: string; app?: string }
+    : result as { message?: string; url?: string; connect_url?: string; app?: string };
+  const url = parsed.url ?? parsed.connect_url;
+  if (parsed.message) return parsed.message;
+  if (url) return `Open this Maton link to finish connecting ${parsed.app ?? 'the app'}: ${url}`;
+  return `Maton connection created:\n${typeof result === 'string' ? result : JSON.stringify(result)}`;
+}
+
+function formatMatonError(err: unknown): string {
+  const text = String(err);
+  const invalidApp = text.match(/Invalid app name:\s*([A-Za-z0-9_-]+)/i)?.[1];
+  if (invalidApp) {
+    return `Maton rejected app "${invalidApp}". Try an exact app slug like google-mail, zoho-mail, google-calendar, or slack.`;
+  }
+  return text.length > 800 ? `${text.slice(0, 800)}...` : text;
+}
 
 export async function handleSlashCommand(
   command: string,
@@ -14,6 +34,24 @@ export async function handleSlashCommand(
   const cmd = (parts[0] ?? '').toLowerCase();
 
   switch (cmd) {
+    case '/maton': {
+      const action = (parts[1] ?? '').toLowerCase();
+      if (!['link', 'connect', 'create'].includes(action)) {
+        return 'Usage: /maton link gmail';
+      }
+      const app = parts.slice(2).join(' ').trim();
+      if (!app) return 'Usage: /maton link gmail';
+      if (!getSecret('MATON_API_KEY')) {
+        return 'Send me your Maton API key first, for example: MATON_API_KEY=your_key';
+      }
+      try {
+        const result = await registry.call('maton_create_connection', { app }, sessionId);
+        return formatMatonConnectionResult(result);
+      } catch (err) {
+        return `I could not create the Maton link: ${formatMatonError(err)}`;
+      }
+    }
+
     case '/secret':
     case '/setkey':
     case '/apikey':

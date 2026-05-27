@@ -204,6 +204,9 @@ registerShellTools();
 import { registerBrowserTools } from '../tools/browser.js';
 registerBrowserTools();
 
+import { registerWhatsAppTools } from '../tools/whatsapp.js';
+registerWhatsAppTools();
+
 import { registerSkillsTools } from '../tools/skills.js';
 import { registerFinanceTools } from '../tools/finance.js';
 import { registerResearchTools } from '../tools/research.js';

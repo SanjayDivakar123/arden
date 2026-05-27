@@ -102,6 +102,9 @@ type MatonConnection = {
   id?: string;
   status?: string;
   url?: string;
+  connect_url?: string;
+  connection_url?: string;
+  auth_url?: string;
   app?: string;
   method?: string;
   metadata?: unknown;
@@ -121,8 +124,10 @@ function normalizeMatonApp(rawApp: string): string {
 function extractConnection(data: unknown): MatonConnection {
   if (!data || typeof data !== 'object') return {};
   const record = data as Record<string, unknown>;
-  const connection = record.connection;
-  if (connection && typeof connection === 'object') return connection as MatonConnection;
+  const nested = record.connection ?? record.data ?? record.result;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    return nested as MatonConnection;
+  }
   return record as MatonConnection;
 }
 
@@ -287,14 +292,16 @@ export function registerMatonTools() {
       const data = await matonControlRequest('/connections', 'POST', body);
       const connection = extractConnection(data);
       const connectionId = connection.connection_id ?? connection.id;
+      const connectUrl = connection.url ?? connection.connect_url ?? connection.connection_url ?? connection.auth_url;
 
       return JSON.stringify({
         app: connection.app ?? appName,
         connection_id: connectionId,
         status: connection.status,
-        url: connection.url,
-        message: connection.url
-          ? `Open this Maton link to finish connecting ${connection.app ?? appName}: ${connection.url}`
+        url: connectUrl,
+        connect_url: connectUrl,
+        message: connectUrl
+          ? `Open this Maton link to finish connecting ${connection.app ?? appName}: ${connectUrl}`
           : `Maton created a connection for ${connection.app ?? appName}, but did not return a connect URL.`,
         raw: data,
       });

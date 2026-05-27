@@ -154,3 +154,16 @@ export async function startWhatsAppNotify(number: string, message: string) {
     : number.replace('+', '') + '@s.whatsapp.net';
   await globalSock.sendMessage(jid, { text: message });
 }
+
+export async function startWhatsAppSendFile(number: string, filePath: string, caption?: string) {
+  if (!globalSock) throw new Error('WhatsApp not connected');
+  const resolvedPath = path.resolve(filePath);
+  if (!fs.existsSync(resolvedPath)) throw new Error(`File not found: ${filePath}`);
+  const jid = number.includes('@')
+    ? number
+    : number.replace('+', '') + '@s.whatsapp.net';
+  await globalSock.sendMessage(jid, {
+    image: { url: resolvedPath },
+    ...(caption ? { caption } : {}),
+  });
+}

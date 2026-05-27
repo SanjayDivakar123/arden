@@ -30,7 +30,37 @@ const SECRET_ALIASES: Array<{ key: string; labels: string[] }> = [
   { key: 'ARDEN_GATEWAY_PORT', labels: ['arden gateway port', 'gateway port'] },
 ];
 
-const KNOWN_MATON_APP_HINTS = /\b(gmail|google mail|zoho|zoho mail|slack|notion|calendar|google calendar|sheets|google sheets|docs|google docs|drive|google drive|hubspot|salesforce|outlook|microsoft outlook|teams|microsoft teams)\b/i;
+const MATON_APP_ALIASES: Record<string, string> = {
+  gmail: 'google-mail',
+  'google mail': 'google-mail',
+  googlemail: 'google-mail',
+  email: 'google-mail',
+  calendar: 'google-calendar',
+  'google calendar': 'google-calendar',
+  gcal: 'google-calendar',
+  sheets: 'google-sheets',
+  spreadsheet: 'google-sheets',
+  spreadsheets: 'google-sheets',
+  'google sheets': 'google-sheets',
+  docs: 'google-docs',
+  'google docs': 'google-docs',
+  drive: 'google-drive',
+  'google drive': 'google-drive',
+  zoho: 'zoho-mail',
+  'zoho mail': 'zoho-mail',
+  zohomail: 'zoho-mail',
+  slack: 'slack',
+  notion: 'notion',
+  hubspot: 'hubspot',
+  salesforce: 'salesforce',
+  outlook: 'microsoft-outlook',
+  'microsoft outlook': 'microsoft-outlook',
+  teams: 'microsoft-teams',
+  'microsoft teams': 'microsoft-teams',
+  airtable: 'airtable',
+};
+
+const MATON_DOCS_OR_CODE_HINTS = /\b(openapi|oas|scalar|curl|endpoint|responses?|query parameters?|authentication|bearer token|authorization:|content-type|selected auth type|client libraries|server:|enum|type:string)\b/i;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -88,28 +118,63 @@ function cleanMatonAppRequest(value: string): string {
     .trim()
     .toLowerCase()
     .replace(/^my\s+/, '')
-    .replace(/\b(account|accounts|app|integration|oauth|authorization|please|for me|through maton|via maton|with maton)\b/g, '')
+    .replace(/^(for|with|to)\s+/, '')
+    .replace(/\b(account|accounts|app|integration|oauth|authorization|connection|connect link|link|please|for me|through maton|via maton|with maton|now)\b/g, '')
     .replace(/\s+/g, ' ')
+    .replace(/[^\w\s-]+$/g, '')
     .trim();
+}
+
+function normalizeMatonAppMention(value: string, allowSlug: boolean): string | null {
+  const cleaned = cleanMatonAppRequest(value);
+  if (!cleaned) return null;
+
+  const alias = MATON_APP_ALIASES[cleaned];
+  if (alias) return alias;
+
+  const slug = cleaned.replace(/[_\s]+/g, '-');
+  if (Object.values(MATON_APP_ALIASES).includes(slug)) return slug;
+  if (allowSlug && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(slug)) return slug;
+  return null;
 }
 
 function parseMatonLinkRequest(message: string): string | null {
   const trimmed = message.trim();
-  const patterns = [
-    /\bmaton\s+(?:link|connect|authorize|auth)\s+(?:my\s+)?([a-z][a-z0-9 _-]{1,60})\b/i,
-    /\b(?:link|connect|authorize|auth)\s+(?:my\s+)?([a-z][a-z0-9 _-]{1,60})\s+(?:through|via|with)\s+maton\b/i,
-    /\b(?:link|connect|authorize|auth)\s+(?:my\s+)?([a-z][a-z0-9 _-]{1,60})\b/i,
+  if (!trimmed) return null;
+
+  const slashMatch = trimmed.match(/^\/maton\s+(?:link|connect|create)\s+(.+)$/i);
+  if (slashMatch) return normalizeMatonAppMention(slashMatch[1] ?? '', true);
+
+  if (trimmed.length > 180 || MATON_DOCS_OR_CODE_HINTS.test(trimmed)) {
+    return null;
+  }
+
+  const explicitPatterns: Array<{ pattern: RegExp; allowSlug: boolean }> = [
+    { pattern: /^maton\s+(?:link|connect|authorize|auth)\s+(?:my\s+)?(.+)$/i, allowSlug: true },
+    { pattern: /^(?:link|connect|authorize|auth)\s+(?:my\s+)?(.+?)\s+(?:through|via|with)\s+maton$/i, allowSlug: true },
+    { pattern: /^(?:create|make|generate)\s+(?:a\s+)?(?:maton\s+)?(?:connect\s+)?(?:connection\s+)?link\s+(?:for|to)\s+(?:my\s+)?(.+)$/i, allowSlug: true },
+    { pattern: /^(?:create|make|generate)\s+(?:a\s+)?(?:maton\s+)?connection\s+(?:for|to)\s+(?:my\s+)?(.+)$/i, allowSlug: true },
+    { pattern: /^(?:link|connect|authorize|auth)\s+(?:my\s+)?(.+)$/i, allowSlug: false },
+    { pattern: /^(?:no\s+)?(?:try|use|do(?:\s+it)?)\s+(?:for|with)\s+(?:my\s+)?(.+)$/i, allowSlug: false },
   ];
 
-  for (const pattern of patterns) {
+  for (const { pattern, allowSlug } of explicitPatterns) {
     const match = trimmed.match(pattern);
     if (!match) continue;
-    const app = cleanMatonAppRequest(match[1] ?? '');
-    if (!app) continue;
-    if (/\bmaton\b/i.test(trimmed) || KNOWN_MATON_APP_HINTS.test(app)) return app;
+    const app = normalizeMatonAppMention(match[1] ?? '', allowSlug);
+    if (app) return app;
   }
 
   return null;
+}
+
+function formatMatonError(err: unknown): string {
+  const text = String(err);
+  const invalidApp = text.match(/Invalid app name:\s*([A-Za-z0-9_-]+)/i)?.[1];
+  if (invalidApp) {
+    return `Maton rejected app "${invalidApp}". Try an exact app slug like google-mail, zoho-mail, google-calendar, or slack.`;
+  }
+  return text.length > 800 ? `${text.slice(0, 800)}...` : text;
 }
 
 function formatMatonConnectionResult(result: unknown): string {
@@ -183,9 +248,35 @@ export class Agent {
     return { provider, model: this.normalizeModel(defaultModel) };
   }
 
+  private channelContext(sessionId: string): string {
+    if (sessionId.startsWith('whatsapp:')) {
+      return [
+        '# Current Channel',
+        'You are replying inside an active WhatsApp chat through Arden. Do not claim you are not on WhatsApp.',
+        'Your final reply sends text back to the current chat. If the user asks you to send a WhatsApp message, image, or screenshot, use the WhatsApp tools when available.',
+        'For current-chat sends, omit recipient_number so the tool targets this WhatsApp chat.',
+      ].join('\n');
+    }
+
+    if (sessionId.startsWith('telegram:')) {
+      return [
+        '# Current Channel',
+        'You are replying inside an active Telegram chat through Arden. Your final reply sends text back to the current chat.',
+      ].join('\n');
+    }
+
+    return [
+      '# Current Channel',
+      'You are replying through Arden chat.',
+    ].join('\n');
+  }
+
   async handle(sessionId: string, userMessage: string): Promise<string> {
     const session = this.getSession(sessionId);
-    const systemPrompt = this.memory.buildSystemPrompt(this.config.agent.name);
+    const systemPrompt = [
+      this.memory.buildSystemPrompt(this.config.agent.name),
+      this.channelContext(sessionId),
+    ].join('\n\n---\n\n');
     const safeUserMessage = redactSecrets(userMessage);
 
     const secretUpdate = parseSecretUpdate(userMessage);
@@ -210,7 +301,7 @@ export class Agent {
         const result = await registry.call('maton_create_connection', { app: matonLinkApp }, sessionId);
         return formatMatonConnectionResult(result);
       } catch (err) {
-        return `I could not create the Maton link: ${String(err)}`;
+        return `I could not create the Maton link: ${formatMatonError(err)}`;
       }
     }
 
