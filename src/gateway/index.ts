@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { loadConfig, env } from '../config/loader.js';
 import { Agent } from '../runtime/agent.js';
 import { logger } from '../utils/logger.js';
-import { loadSecrets } from '../utils/secrets.js';
+import { loadSecrets, redactSecrets } from '../utils/secrets.js';
 
 const config = loadConfig();
 const app = express();
@@ -68,7 +68,7 @@ wss.on('connection', (ws, req) => {
   ws.on('message', async (raw) => {
     try {
       const { session_id, message, channel } = JSON.parse(raw.toString());
-      logger.info('GATEWAY', `[${channel}] ${session_id}: ${message.substring(0, 60)}`);
+      logger.info('GATEWAY', `[${channel}] ${session_id}: ${redactSecrets(message).substring(0, 60)}`);
       const reply = await agent.handle(session_id, message);
       ws.send(JSON.stringify({ session_id, reply }));
     } catch (err) {

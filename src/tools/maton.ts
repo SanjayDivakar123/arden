@@ -2,18 +2,25 @@ import { registry } from './registry.js';
 import { logger } from '../utils/logger.js';
 import { getSecret } from '../utils/secrets.js';
 
-const MATON_API = 'https://api.maton.ai';
+const MATON_CONTROL_API = 'https://ctrl.maton.ai';
+const MATON_GATEWAY_API = 'https://gateway.maton.ai';
 
 function getApiKey(): string {
   return getSecret('MATON_API_KEY');
 }
 
-async function matonRequest(endpoint: string, method: string, body?: object, connectionId?: string) {
+async function matonRequest(
+  endpoint: string,
+  method: string,
+  body?: object,
+  connectionId?: string,
+  baseUrl = MATON_GATEWAY_API,
+) {
   const apiKey = getApiKey();
-  if (!apiKey) throw new Error('MATON_API_KEY not set. Add it via arden onboard.');
+  if (!apiKey) throw new Error('MATON_API_KEY not set. Send MATON_API_KEY=your_key in chat or add it via arden onboard.');
   const httpMethod = method.toUpperCase();
 
-  const res = await fetch(`${MATON_API}${endpoint}`, {
+  const res = await fetch(`${baseUrl}${endpoint}`, {
     method: httpMethod,
     headers: {
       'Content-Type': 'application/json',
@@ -38,6 +45,10 @@ async function matonRequest(endpoint: string, method: string, body?: object, con
   return res.json();
 }
 
+async function matonControlRequest(endpoint: string, method: string, body?: object) {
+  return matonRequest(endpoint, method, body, undefined, MATON_CONTROL_API);
+}
+
 function parseJsonParam(value: string | undefined, fieldName: string): object | undefined {
   if (!value) return undefined;
   try {
@@ -56,6 +67,64 @@ const APP_NATIVE_PATH_PREFIXES: Record<string, string> = {
   'google-mail': 'gmail',
   'google-calendar': 'calendar',
 };
+
+const MATON_APP_ALIASES: Record<string, string> = {
+  gmail: 'google-mail',
+  'google mail': 'google-mail',
+  googlemail: 'google-mail',
+  email: 'google-mail',
+  calendar: 'google-calendar',
+  'google calendar': 'google-calendar',
+  gcal: 'google-calendar',
+  sheets: 'google-sheets',
+  spreadsheet: 'google-sheets',
+  spreadsheets: 'google-sheets',
+  'google sheets': 'google-sheets',
+  docs: 'google-docs',
+  'google docs': 'google-docs',
+  drive: 'google-drive',
+  'google drive': 'google-drive',
+  zoho: 'zoho-mail',
+  'zoho mail': 'zoho-mail',
+  zohomail: 'zoho-mail',
+  slack: 'slack',
+  notion: 'notion',
+  hubspot: 'hubspot',
+  salesforce: 'salesforce',
+  outlook: 'microsoft-outlook',
+  'microsoft outlook': 'microsoft-outlook',
+  teams: 'microsoft-teams',
+  'microsoft teams': 'microsoft-teams',
+};
+
+type MatonConnection = {
+  connection_id?: string;
+  id?: string;
+  status?: string;
+  url?: string;
+  app?: string;
+  method?: string;
+  metadata?: unknown;
+};
+
+function normalizeMatonApp(rawApp: string): string {
+  const normalized = rawApp
+    .trim()
+    .toLowerCase()
+    .replace(/^my\s+/, '')
+    .replace(/\s+/g, ' ');
+
+  if (!normalized) throw new Error('app is required.');
+  return MATON_APP_ALIASES[normalized] ?? normalized.replace(/[_\s]+/g, '-');
+}
+
+function extractConnection(data: unknown): MatonConnection {
+  if (!data || typeof data !== 'object') return {};
+  const record = data as Record<string, unknown>;
+  const connection = record.connection;
+  if (connection && typeof connection === 'object') return connection as MatonConnection;
+  return record as MatonConnection;
+}
 
 function normalizeProxyPath(rawPath: string, app?: string): string {
   const trimmed = rawPath.trim();
@@ -191,8 +260,44 @@ export function registerMatonTools() {
       if (app) params.set('app', app);
       if (status) params.set('status', status);
       const qs = params.toString();
-      const data = await matonRequest(`/connections${qs ? `?${qs}` : ''}`, 'GET') as Record<string, unknown>;
+      const data = await matonControlRequest(`/connections${qs ? `?${qs}` : ''}`, 'GET') as Record<string, unknown>;
       return JSON.stringify(data);
+    },
+  });
+
+  registry.register({
+    name: 'maton_create_connection',
+    description: 'Create a Maton OAuth/API connection for an app and return the connect URL the user should open. Use this when the user asks to link or connect Gmail, Zoho Mail, Slack, Notion, Google Calendar, Google Sheets, or another app through Maton.',
+    parameters: {
+      type: 'object',
+      properties: {
+        app: { type: 'string', description: 'Maton app name or common alias, e.g. gmail, google-mail, zoho, zoho-mail, slack, notion, google-calendar.' },
+        method: { type: 'string', description: 'Optional connection method. Usually omit it for OAuth apps. Examples: OAUTH2, API_KEY, BASIC, OAUTH1, MCP.' },
+      },
+      required: ['app'],
+    },
+    handler: async (input) => {
+      const { app, method } = input as { app?: string; method?: string };
+      const appName = normalizeMatonApp(assertNonEmpty(app, 'app'));
+      const body: Record<string, string> = { app: appName };
+      const connectionMethod = cleanOptional(method);
+      if (connectionMethod) body.method = connectionMethod;
+
+      logger.info('MATON', `Creating connection for ${appName}`);
+      const data = await matonControlRequest('/connections', 'POST', body);
+      const connection = extractConnection(data);
+      const connectionId = connection.connection_id ?? connection.id;
+
+      return JSON.stringify({
+        app: connection.app ?? appName,
+        connection_id: connectionId,
+        status: connection.status,
+        url: connection.url,
+        message: connection.url
+          ? `Open this Maton link to finish connecting ${connection.app ?? appName}: ${connection.url}`
+          : `Maton created a connection for ${connection.app ?? appName}, but did not return a connect URL.`,
+        raw: data,
+      });
     },
   });
 
@@ -375,5 +480,5 @@ export function registerMatonTools() {
     },
   });
 
-  logger.success('TOOLS', 'Maton tools registered: maton_list_connections, maton_run_action, maton_proxy_request, maton_send_email');
+  logger.success('TOOLS', 'Maton tools registered: maton_list_connections, maton_create_connection, maton_run_action, maton_proxy_request, maton_send_email');
 }

@@ -9,6 +9,7 @@ import path from 'path';
 import fs from 'fs';
 import { loadConfig } from '../../config/loader.js';
 import { logger } from '../../utils/logger.js';
+import { redactSecrets } from '../../utils/secrets.js';
 import type { Agent } from '../../runtime/agent.js';
 import { handleSlashCommand } from '../../runtime/commands.js';
 
@@ -93,7 +94,7 @@ export async function startWhatsAppAdapter(agent: Agent) {
         }
 
         const sessionId = `whatsapp:${number}`;
-        logger.info('WHATSAPP', `${number}: ${text.substring(0, 80)}`);
+        logger.info('WHATSAPP', `${number}: ${redactSecrets(text).substring(0, 80)}`);
 
         try {
           await sock.sendPresenceUpdate('composing', jid);

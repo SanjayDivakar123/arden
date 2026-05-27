@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { env } from '../config/loader.js';
 import { logger } from '../utils/logger.js';
+import { getSecret } from '../utils/secrets.js';
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -23,8 +23,6 @@ export interface LoopResult {
   toolsUsed: string[];
   iterations: number;
 }
-
-const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
 export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
   if (opts.provider === 'openai') return runOpenAILoop(opts);
@@ -65,6 +63,9 @@ async function runAnthropicLoop(opts: LoopOptions): Promise<LoopResult> {
       requestParams.tools = tools as Anthropic.Tool[];
     }
 
+    const apiKey = getSecret('ANTHROPIC_API_KEY');
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
+    const client = new Anthropic({ apiKey });
     const response = await client.messages.create(requestParams);
 
     if (response.stop_reason === 'end_turn') {
@@ -160,12 +161,13 @@ function parseOpenAIToolArguments(args: string | undefined): Record<string, unkn
 }
 
 async function createOpenAIResponse(body: Record<string, unknown>): Promise<OpenAIResponse> {
-  if (!env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not configured');
+  const apiKey = getSecret('OPENAI_API_KEY');
+  if (!apiKey) throw new Error('OPENAI_API_KEY not configured');
 
   const res = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${env.OPENAI_API_KEY}`,
+      'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),

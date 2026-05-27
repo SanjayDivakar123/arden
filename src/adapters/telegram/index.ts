@@ -1,6 +1,7 @@
 import { Bot } from 'grammy';
 import { env, loadConfig } from '../../config/loader.js';
 import { logger } from '../../utils/logger.js';
+import { redactSecrets } from '../../utils/secrets.js';
 import { handleSlashCommand } from '../../runtime/commands.js';
 
 
@@ -33,7 +34,7 @@ export function startTelegramAdapter(agent: Agent) {
     const sessionId = `telegram:${userId}`;
     const userMessage = ctx.message.text;
 
-    logger.info('TELEGRAM', `@${username}: ${userMessage.substring(0, 80)}`);
+    logger.info('TELEGRAM', `@${username}: ${redactSecrets(userMessage).substring(0, 80)}`);
 
     try {
       await ctx.replyWithChatAction('typing');

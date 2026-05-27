@@ -2,15 +2,38 @@ import fs from 'fs';
 import path from 'path';
 import { loadCrons } from './cron.js';
 import type { Agent } from './agent.js';
+import { setSecret } from '../utils/secrets.js';
 
 export async function handleSlashCommand(
   command: string,
   sessionId: string,
   agent: Agent
 ): Promise<string | null> {
-  const cmd = command.trim().toLowerCase().split(/\s+/)[0];
+  const trimmed = command.trim();
+  const parts = trimmed.split(/\s+/);
+  const cmd = (parts[0] ?? '').toLowerCase();
 
   switch (cmd) {
+    case '/secret':
+    case '/setkey':
+    case '/apikey':
+    case '/api-key': {
+      const key = cmd === '/secret' && parts[1]?.toLowerCase() === 'set'
+        ? parts[2]
+        : parts[1];
+      const valueStart = cmd === '/secret' && parts[1]?.toLowerCase() === 'set' ? 3 : 2;
+      const value = parts.slice(valueStart).join(' ').trim();
+      if (!key || !value) {
+        return 'Usage: /secret set MATON_API_KEY your_key';
+      }
+      try {
+        setSecret(key, value);
+        return `Saved ${key.toUpperCase()}.`;
+      } catch (err) {
+        return `Could not save secret: ${String(err)}`;
+      }
+    }
+
     case '/status': {
       const uptime = Math.floor(process.uptime());
       const h = Math.floor(uptime / 3600);

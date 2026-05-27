@@ -4,6 +4,122 @@ import { Memory } from '../memory/index.js';
 import type { ArdenConfig } from '../config/loader.js';
 import { logger } from '../utils/logger.js';
 import { registry } from '../tools/registry.js';
+import { getSecret, redactSecrets, setSecret } from '../utils/secrets.js';
+
+type ParsedSecretUpdate = {
+  key: string;
+  value: string;
+};
+
+const SECRET_KEY_PATTERN = /^[A-Z][A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|ENCRYPTED_KEY|AUTH_TOKEN|PROJECT_ID|FROM_NUMBER|NUMBER|GATEWAY_PORT)$/;
+
+const SECRET_ALIASES: Array<{ key: string; labels: string[] }> = [
+  { key: 'BROWSERBASE_PROJECT_ID', labels: ['browserbase project id', 'browserbase project'] },
+  { key: 'BLAND_ENCRYPTED_KEY', labels: ['bland byot encrypted key', 'bland encrypted key', 'bland byot'] },
+  { key: 'BLAND_FROM_NUMBER', labels: ['bland caller id', 'bland from number'] },
+  { key: 'TELEGRAM_BOT_TOKEN', labels: ['telegram bot token', 'telegram token', 'telegram'] },
+  { key: 'MATON_API_KEY', labels: ['maton api key', 'maton key', 'maton'] },
+  { key: 'BROWSERBASE_API_KEY', labels: ['browserbase api key', 'browserbase key', 'browserbase'] },
+  { key: 'BLAND_API_KEY', labels: ['bland ai api key', 'bland api key', 'bland ai', 'bland'] },
+  { key: 'OPENAI_API_KEY', labels: ['openai api key', 'openai key', 'openai'] },
+  { key: 'ANTHROPIC_API_KEY', labels: ['anthropic api key', 'anthropic key', 'claude api key', 'claude key', 'anthropic'] },
+  { key: 'GEMINI_API_KEY', labels: ['gemini api key', 'google ai api key', 'gemini key', 'gemini'] },
+  { key: 'OPENCODE_API_KEY', labels: ['opencode api key', 'opencode key', 'opencode'] },
+  { key: 'WHATSAPP_NUMBER', labels: ['whatsapp number', 'whatsapp'] },
+  { key: 'ARDEN_AUTH_TOKEN', labels: ['arden auth token', 'gateway auth token'] },
+  { key: 'ARDEN_GATEWAY_PORT', labels: ['arden gateway port', 'gateway port'] },
+];
+
+const KNOWN_MATON_APP_HINTS = /\b(gmail|google mail|zoho|zoho mail|slack|notion|calendar|google calendar|sheets|google sheets|docs|google docs|drive|google drive|hubspot|salesforce|outlook|microsoft outlook|teams|microsoft teams)\b/i;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function cleanSecretValue(value: string): string {
+  let cleaned = value.trim();
+  cleaned = cleaned.replace(/^["'`]+|["'`]+$/g, '');
+  if (!cleaned.slice(0, -1).includes('.') && /[.,;]$/.test(cleaned)) {
+    cleaned = cleaned.slice(0, -1);
+  }
+  return cleaned.trim();
+}
+
+function normalizeSecretKey(value: string): string | null {
+  const key = value.trim().toUpperCase();
+  return SECRET_KEY_PATTERN.test(key) ? key : null;
+}
+
+function parseSecretUpdate(message: string): ParsedSecretUpdate | null {
+  const trimmed = message.trim();
+
+  const slashMatch = trimmed.match(/^\/(?:secret|setkey|api-key|apikey)\s+(?:set\s+)?([A-Za-z][A-Za-z0-9_]*)\s+(.+)$/i);
+  if (slashMatch) {
+    const key = normalizeSecretKey(slashMatch[1] ?? '');
+    const value = cleanSecretValue(slashMatch[2] ?? '');
+    if (key && value) return { key, value };
+  }
+
+  const assignmentMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9_]*(?:api_key|token|secret|encrypted_key|auth_token|project_id|from_number|number|gateway_port))\s*[:=]\s*(.+)$/i);
+  if (assignmentMatch) {
+    const key = normalizeSecretKey(assignmentMatch[1] ?? '');
+    const value = cleanSecretValue(assignmentMatch[2] ?? '');
+    if (key && value) return { key, value };
+  }
+
+  for (const alias of SECRET_ALIASES) {
+    for (const label of alias.labels) {
+      const re = new RegExp(
+        `(?:^|\\b)(?:my\\s+|the\\s+|save\\s+|set\\s+|here(?:'s|\\s+is)\\s+(?:my\\s+)?)?${escapeRegExp(label)}(?:\\s+(?:api\\s*key|key|token|bot\\s*token|project\\s*id|caller\\s*id|from\\s*number|encrypted[_\\s-]?key|port))?\\s*(?:is|=|:)\\s*(.+)$`,
+        'i',
+      );
+      const match = trimmed.match(re);
+      if (!match) continue;
+      const value = cleanSecretValue(match[1] ?? '');
+      if (value) return { key: alias.key, value };
+    }
+  }
+
+  return null;
+}
+
+function cleanMatonAppRequest(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^my\s+/, '')
+    .replace(/\b(account|accounts|app|integration|oauth|authorization|please|for me|through maton|via maton|with maton)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseMatonLinkRequest(message: string): string | null {
+  const trimmed = message.trim();
+  const patterns = [
+    /\bmaton\s+(?:link|connect|authorize|auth)\s+(?:my\s+)?([a-z][a-z0-9 _-]{1,60})\b/i,
+    /\b(?:link|connect|authorize|auth)\s+(?:my\s+)?([a-z][a-z0-9 _-]{1,60})\s+(?:through|via|with)\s+maton\b/i,
+    /\b(?:link|connect|authorize|auth)\s+(?:my\s+)?([a-z][a-z0-9 _-]{1,60})\b/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = trimmed.match(pattern);
+    if (!match) continue;
+    const app = cleanMatonAppRequest(match[1] ?? '');
+    if (!app) continue;
+    if (/\bmaton\b/i.test(trimmed) || KNOWN_MATON_APP_HINTS.test(app)) return app;
+  }
+
+  return null;
+}
+
+function formatMatonConnectionResult(result: unknown): string {
+  const parsed = typeof result === 'string'
+    ? JSON.parse(result) as { message?: string; url?: string; app?: string }
+    : result as { message?: string; url?: string; app?: string };
+  if (parsed.message) return parsed.message;
+  if (parsed.url) return `Open this Maton link to finish connecting ${parsed.app ?? 'the app'}: ${parsed.url}`;
+  return `Maton connection created:\n${typeof result === 'string' ? result : JSON.stringify(result)}`;
+}
 
 export class Agent {
   private config: ArdenConfig;
@@ -70,9 +186,36 @@ export class Agent {
   async handle(sessionId: string, userMessage: string): Promise<string> {
     const session = this.getSession(sessionId);
     const systemPrompt = this.memory.buildSystemPrompt(this.config.agent.name);
+    const safeUserMessage = redactSecrets(userMessage);
 
-    logger.info('AGENT', `[${sessionId}] ${userMessage.substring(0, 80)}`);
-    this.memory.logToday(`User: ${userMessage}`);
+    const secretUpdate = parseSecretUpdate(userMessage);
+    if (secretUpdate) {
+      setSecret(secretUpdate.key, secretUpdate.value);
+      logger.info('AGENT', `[${sessionId}] Saved ${secretUpdate.key} from chat`);
+      this.memory.logToday(`User saved ${secretUpdate.key} from chat.`);
+      const needsRestart = ['TELEGRAM_BOT_TOKEN', 'WHATSAPP_NUMBER', 'ARDEN_GATEWAY_PORT', 'ARDEN_AUTH_TOKEN'].includes(secretUpdate.key);
+      return needsRestart
+        ? `Saved ${secretUpdate.key}. Restart the gateway for that setting to take effect.`
+        : `Saved ${secretUpdate.key}. I can use it now.`;
+    }
+
+    const matonLinkApp = parseMatonLinkRequest(userMessage);
+    if (matonLinkApp) {
+      logger.info('AGENT', `[${sessionId}] Maton link request: ${matonLinkApp}`);
+      this.memory.logToday(`User requested a Maton connection link for ${matonLinkApp}.`);
+      if (!getSecret('MATON_API_KEY')) {
+        return 'Send me your Maton API key first, for example: MATON_API_KEY=your_key';
+      }
+      try {
+        const result = await registry.call('maton_create_connection', { app: matonLinkApp }, sessionId);
+        return formatMatonConnectionResult(result);
+      } catch (err) {
+        return `I could not create the Maton link: ${String(err)}`;
+      }
+    }
+
+    logger.info('AGENT', `[${sessionId}] ${safeUserMessage.substring(0, 80)}`);
+    this.memory.logToday(`User: ${safeUserMessage}`);
 
     session.push({ role: 'user', content: userMessage });
 
