@@ -1,0 +1,32 @@
+{
+  "agent": {
+    "name": "d",
+    "provider": "anthropic",
+    "model": "claude-opus-4-5",
+    "fallback_model": "claude-haiku-4-5",
+    "haiku_model": "claude-haiku-4-5",
+    "opus_model": "claude-opus-4-6",
+    "workspace": "./workspace"
+  },
+  "channels": {
+    "whatsapp": {
+      "enabled": true,
+      "allowlist": []
+    },
+    "telegram": {
+      "enabled": false,
+      "allowlist": []
+    }
+  },
+  "gateway": {
+    "port": 3000
+  },
+  "loop": {
+    "max_iterations": 10,
+    "require_completion_report": true
+  },
+  "heartbeat": {
+    "enabled": false,
+    "interval": "30m"
+  }
+}

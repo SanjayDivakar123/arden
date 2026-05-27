@@ -23,6 +23,10 @@ function saveDeployConfig(config: DeployConfig) {
   fs.writeFileSync(DEPLOY_CONFIG_PATH, JSON.stringify(config, null, 2));
 }
 
+function shellQuote(value: string) {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 async function getSSH(config: DeployConfig): Promise<NodeSSH> {
   const ssh = new NodeSSH();
   const connectOpts: Parameters<NodeSSH['connect']>[0] = {
@@ -148,7 +152,7 @@ export async function runDeploy() {
 
   // Step 2: Ensure deploy path exists
   s.start('Preparing remote directory...');
-  await ssh.execCommand(`mkdir -p ${config.deployPath}`);
+  await ssh.execCommand(`mkdir -p ${shellQuote(config.deployPath)}`);
   s.stop('Directory ready.');
 
   // Step 3: Sync files via rsync
@@ -205,17 +209,42 @@ export async function runDeploy() {
 
   // Step 7: Start or restart gateway
   s.start('Starting gateway...');
-  const tsxPath = (await ssh.execCommand('which tsx')).stdout.trim();
+  const deployRoot = config.deployPath.replace(/\/+$/, '') || '/';
+  const gatewayEntry = path.posix.join(deployRoot, 'src/gateway/index.ts');
+  const entryCheck = await ssh.execCommand(`test -f ${shellQuote(gatewayEntry)}`, { cwd: config.deployPath });
+  if (entryCheck.code !== 0) {
+    s.stop('Gateway entry missing.');
+    p.log.error(`Could not find ${gatewayEntry} on the VPS.`);
+    p.log.info('Run `arden deploy` from the Arden project directory, or update the deploy path with `arden deploy setup`.');
+    ssh.dispose();
+    process.exit(1);
+  }
+
+  const tsxPath = (await ssh.execCommand('which tsx')).stdout.trim() || 'tsx';
+  await ssh.execCommand('pm2 delete arden-gateway > /dev/null 2>&1 || true');
   const pm2Result = await ssh.execCommand(
-    `pm2 describe arden-gateway > /dev/null 2>&1 \
-      && pm2 restart arden-gateway \
-      || pm2 start ${config.deployPath}/src/gateway/index.ts \
-          --name arden-gateway \
-          --interpreter ${tsxPath} \
-          --cwd ${config.deployPath}`,
+    [
+      'pm2 start',
+      shellQuote(gatewayEntry),
+      '--name arden-gateway',
+      '--interpreter',
+      shellQuote(tsxPath),
+      '--cwd',
+      shellQuote(config.deployPath),
+    ].join(' '),
     { cwd: config.deployPath }
   );
-  await ssh.execCommand('pm2 save');
+  if (pm2Result.code !== 0) {
+    s.stop('Gateway failed to start.');
+    p.log.error(pm2Result.stderr || pm2Result.stdout || 'PM2 returned an error.');
+    ssh.dispose();
+    process.exit(1);
+  }
+
+  const saveResult = await ssh.execCommand('pm2 save');
+  if (saveResult.code !== 0) {
+    p.log.warn('Gateway started, but PM2 save failed. Run `pm2 save` on the VPS to persist it across reboot.');
+  }
   s.stop('Gateway started.');
 
   // Step 8: Verify

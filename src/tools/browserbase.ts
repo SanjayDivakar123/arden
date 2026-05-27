@@ -32,6 +32,9 @@ async function createSession(): Promise<BrowserbaseSession> {
   const { projectId } = getBrowserbaseConfig();
   const options = projectId ? { projectId } : {};
   const session = await bb.sessions.create(options);
+  if (!session.connectUrl) {
+    throw new Error(`Browserbase session ${session.id} did not include a connect URL.`);
+  }
   const browser = await chromium.connectOverCDP(session.connectUrl);
   const context = browser.contexts()[0] ?? await browser.newContext();
   const page = context.pages()[0] ?? await context.newPage();
@@ -51,6 +54,9 @@ async function getSession(sessionId?: string): Promise<BrowserbaseSession> {
     const bb = getClient();
     const bbSession = await bb.sessions.retrieve(sessionId);
     if (bbSession && bbSession.status === 'RUNNING') {
+      if (!bbSession.connectUrl) {
+        throw new Error(`Browserbase session ${sessionId} did not include a connect URL.`);
+      }
       const browser = await chromium.connectOverCDP(bbSession.connectUrl);
       const context = browser.contexts()[0] ?? await browser.newContext();
       const page = context.pages()[0] ?? await context.newPage();
@@ -284,4 +290,3 @@ export function registerBrowserbaseTools() {
 
   logger.success('TOOLS', 'Browserbase tools registered: browserbase_navigate, browserbase_extract_text, browserbase_screenshot, browserbase_click, browserbase_type, browserbase_close, browserbase_list_sessions, browserbase_scroll, browserbase_wait_for, browserbase_reload');
 }
-

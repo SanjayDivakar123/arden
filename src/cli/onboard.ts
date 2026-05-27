@@ -27,6 +27,10 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+function optionalPromptValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function startGatewayProcess(foreground = false): 'started' | 'restarted' | 'foreground' {
   const gatewayEntry = path.join(PACKAGE_ROOT, 'src/gateway/index.ts');
   const localTsx = path.join(PACKAGE_ROOT, 'node_modules/.bin/tsx');
@@ -303,10 +307,11 @@ async function runEasySetup() {
       placeholder: 'e.g. 123456789 or +15551234567',
     });
     if (p.isCancel(allowlistInput)) { p.cancel('Cancelled.'); process.exit(0); }
+    const allowlistValue = optionalPromptValue(allowlistInput);
 
     channelsConfig[channelChoice] = {
       enabled: true,
-      allowlist: allowlistInput ? [allowlistInput as string] : [],
+      allowlist: allowlistValue ? [allowlistValue] : [],
     };
   }
 
@@ -385,10 +390,11 @@ async function runManualSetup() {
       message: `${ch.label}: allowlist ID or number (leave blank to skip)`,
     });
     if (p.isCancel(allowlistInput)) { p.cancel('Cancelled.'); process.exit(0); }
+    const allowlistValue = optionalPromptValue(allowlistInput);
 
     channelsConfig[chVal] = {
       enabled: true,
-      allowlist: allowlistInput ? [allowlistInput as string] : [],
+      allowlist: allowlistValue ? [allowlistValue] : [],
     };
   }
 
@@ -532,8 +538,9 @@ export async function promptToolKeys(secrets: Record<string, string>): Promise<v
       placeholder: 'Leave blank to infer from API key',
     });
     if (p.isCancel(bbProject)) { p.cancel('Cancelled.'); process.exit(0); }
-    if ((bbProject as string).trim()) {
-      secrets.BROWSERBASE_PROJECT_ID = (bbProject as string).trim();
+    const bbProjectValue = optionalPromptValue(bbProject);
+    if (bbProjectValue) {
+      secrets.BROWSERBASE_PROJECT_ID = bbProjectValue;
     }
   }
 
@@ -558,16 +565,18 @@ export async function promptToolKeys(secrets: Record<string, string>): Promise<v
       placeholder: '+15551234567',
     });
     if (p.isCancel(blandFrom)) { p.cancel('Cancelled.'); process.exit(0); }
-    if ((blandFrom as string).trim()) {
-      secrets.BLAND_FROM_NUMBER = (blandFrom as string).trim();
+    const blandFromValue = optionalPromptValue(blandFrom);
+    if (blandFromValue) {
+      secrets.BLAND_FROM_NUMBER = blandFromValue;
     }
 
     const blandEncryptedKey = await p.password({
       message: 'Bland BYOT encrypted_key (optional)',
     });
     if (p.isCancel(blandEncryptedKey)) { p.cancel('Cancelled.'); process.exit(0); }
-    if ((blandEncryptedKey as string).trim()) {
-      secrets.BLAND_ENCRYPTED_KEY = (blandEncryptedKey as string).trim();
+    const blandEncryptedKeyValue = optionalPromptValue(blandEncryptedKey);
+    if (blandEncryptedKeyValue) {
+      secrets.BLAND_ENCRYPTED_KEY = blandEncryptedKeyValue;
     }
   }
   // ── Maton ───────────────────────────────────────────────────────────────────
@@ -591,8 +600,9 @@ export async function promptToolKeys(secrets: Record<string, string>): Promise<v
     });
     if (p.isCancel(matonApps)) { p.cancel('Cancelled.'); process.exit(0); }
 
-    if (matonApps && (matonApps as string).trim()) {
-      secrets.MATON_LINKED_APPS = (matonApps as string).trim();
+    const matonAppsValue = optionalPromptValue(matonApps);
+    if (matonAppsValue) {
+      secrets.MATON_LINKED_APPS = matonAppsValue;
     }
   }
 }
