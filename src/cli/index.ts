@@ -6,6 +6,7 @@ import path from 'path';
 import readline from 'readline';
 import { fileURLToPath } from 'url';
 import { printBanner } from '../utils/banner.js';
+import { tsxNodeCommand, tsxNodeImportArg } from './tsx.js';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -15,7 +16,6 @@ const CLI_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = path.resolve(CLI_DIR, '../..');
 const GATEWAY_ENTRY = path.join(PACKAGE_ROOT, 'src/gateway/index.ts');
 const DIST_GATEWAY_ENTRY = path.join(PACKAGE_ROOT, 'dist/gateway/index.js');
-const LOCAL_TSX = path.join(PACKAGE_ROOT, 'node_modules/.bin/tsx');
 
 const C = {
   reset: '\x1b[0m',
@@ -60,17 +60,14 @@ function writeConfig(config: object) {
   fs.writeFileSync('arden.config.json', JSON.stringify(config, null, 2));
 }
 
-function tsxCommand() {
-  return fs.existsSync(LOCAL_TSX) ? LOCAL_TSX : 'tsx';
-}
-
 function shellQuote(value: string) {
+  if (process.platform === 'win32') return `"${value.replace(/"/g, '""')}"`;
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 function ensurePm2Available(): boolean {
   try {
-    execSync('command -v pm2', { stdio: 'ignore' });
+    execSync(process.platform === 'win32' ? 'where pm2' : 'command -v pm2', { stdio: 'ignore' });
     return true;
   } catch {
     log.error('PM2 is required to run Arden in the background.');
@@ -80,8 +77,12 @@ function ensurePm2Available(): boolean {
   }
 }
 
-function startGatewayWithPm2(entry: string, interpreter: string, mode: 'dev' | 'production') {
-  execSync('pm2 delete arden-gateway >/dev/null 2>&1 || true', { stdio: 'ignore' });
+function startGatewayWithPm2(entry: string, interpreter: string, mode: 'dev' | 'production', interpreterArgs: string[] = []) {
+  try {
+    execSync('pm2 delete arden-gateway', { stdio: 'ignore' });
+  } catch {
+    // Ignore a missing existing process.
+  }
   execSync(
     [
       'pm2 start',
@@ -89,6 +90,7 @@ function startGatewayWithPm2(entry: string, interpreter: string, mode: 'dev' | '
       '--name arden-gateway',
       '--interpreter',
       shellQuote(interpreter),
+      ...(interpreterArgs.length ? ['--interpreter-args', shellQuote(interpreterArgs.join(' '))] : []),
       '--cwd',
       shellQuote(process.cwd()),
     ].join(' '),
@@ -104,7 +106,7 @@ function startGatewayWithPm2(entry: string, interpreter: string, mode: 'dev' | '
 }
 
 function spawnGatewayWithTsx() {
-  startGatewayWithPm2(GATEWAY_ENTRY, tsxCommand(), 'dev');
+  startGatewayWithPm2(GATEWAY_ENTRY, process.execPath, 'dev', [tsxNodeImportArg()]);
 }
 
 function gatewayPort() {
@@ -278,8 +280,7 @@ async function cmdDev() {
   log.blank();
   if (!(await ensureGatewayPortAvailable())) return;
 
-  const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  const args = ['tsx', GATEWAY_ENTRY];
+  const { command, args } = tsxNodeCommand(GATEWAY_ENTRY);
 
   log.info(`Spawning gateway: ${command} ${args.join(' ')}`);
   const proc = spawn(command, args, { stdio: 'inherit' });

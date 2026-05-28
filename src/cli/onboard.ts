@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { printBanner } from '../utils/banner.js';
+import { tsxNodeCommand, tsxNodeImportArg } from './tsx.js';
 
 const CONFIG_PATH = path.resolve('arden.config.json');
 const SECRETS_PATH = path.resolve('.arden-secrets.json');
@@ -24,6 +25,7 @@ function saveConfig(config: object) {
 }
 
 function shellQuote(value: string): string {
+  if (process.platform === 'win32') return `"${value.replace(/"/g, '""')}"`;
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
@@ -33,36 +35,38 @@ function optionalPromptValue(value: unknown): string {
 
 function startGatewayProcess(foreground = false): 'started' | 'restarted' | 'foreground' {
   const gatewayEntry = path.join(PACKAGE_ROOT, 'src/gateway/index.ts');
-  const localTsx = path.join(PACKAGE_ROOT, 'node_modules/.bin/tsx');
-  const tsxInterpreter = fs.existsSync(localTsx) ? localTsx : 'tsx';
 
   if (foreground) {
-    const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-    const args = ['tsx', gatewayEntry];
+    const { command, args } = tsxNodeCommand(gatewayEntry);
     console.log(`\n\x1b[36m▸\x1b[0m Starting gateway in foreground for verification...`);
     spawnSync(command, args, { stdio: 'inherit' });
     return 'foreground';
   }
 
+  let state: 'started' | 'restarted' = 'started';
   try {
     execSync('pm2 describe arden-gateway', { stdio: 'ignore' });
-    execSync('pm2 restart arden-gateway --update-env', { stdio: 'pipe' });
-    return 'restarted';
+    execSync('pm2 delete arden-gateway', { stdio: 'pipe' });
+    state = 'restarted';
   } catch {
-    execSync(
-      [
-        'pm2 start',
-        shellQuote(gatewayEntry),
-        '--name arden-gateway',
-        '--interpreter',
-        shellQuote(tsxInterpreter),
-        '--cwd',
-        shellQuote(process.cwd()),
-      ].join(' '),
-      { stdio: 'pipe' }
-    );
-    return 'started';
+    state = 'started';
   }
+
+  execSync(
+    [
+      'pm2 start',
+      shellQuote(gatewayEntry),
+      '--name arden-gateway',
+      '--interpreter',
+      shellQuote(process.execPath),
+      '--interpreter-args',
+      shellQuote(tsxNodeImportArg()),
+      '--cwd',
+      shellQuote(process.cwd()),
+    ].join(' '),
+    { stdio: 'pipe' }
+  );
+  return state;
 }
 
 function ensureWorkspace(workspace: string, agentName: string) {
