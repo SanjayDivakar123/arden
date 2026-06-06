@@ -41,7 +41,7 @@ const DEFAULTS: ArdenConfig = {
     workspace: './workspace',
   },
   channels: {},
-  loop: { max_iterations: 10, require_completion_report: true },
+  loop: { max_iterations: 30, require_completion_report: true },
   heartbeat: { enabled: false, interval: '30m' },
 };
 
